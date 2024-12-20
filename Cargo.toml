@@ -4,3 +4,35 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ark-sumcheck = { path = "../zkconv/crates/sumcheck" }
+# pcs = { path = "../zkconv/crates/lookup/pcs" }
+utils = { path = "../zkconv/crates/lookup/utils" }
+poly_iop = { path = "../zkconv/crates/lookup/poly_iop" }
+logup = { path = "../zkconv/crates/lookup/logup" }
+arithmetic = { path = "../zkconv/crates/lookup/arithmetic" }
+ark-ff = { version = "0.5.0", default-features = false }
+ark-std = { version = "0.5.0", default-features = false }
+ark-poly = { version = "0.5.0", default-features = false }
+ark-test-curves = { version = "0.5.0", default-features = false, features = [
+    "bls12_381_scalar_field",
+    "bls12_381_curve",
+] }
+ark-ec = { version = "0.5.0", default-features = false }
+ark-poly-commit = { version = "0.5.0", default-features = false }
+ark-bls12-377 = { version = "0.5.0", default-features = false, features = [
+    "curve",
+] }
+ark-bls12-381 = { version = "0.5.0", default-features = false, features = [
+    "curve",
+] }
+ark-bn254 = { version = "0.5.0", default-features = false, features = [
+    "curve",
+] }
+ark-ed-on-bls12-381 = { version = "0.5.0", default-features = false }
+rand_chacha = { version = "0.3.1" }
+ark-crypto-primitives = { version = "0.5.0", default-features = false }
+merlin = { version = "3.0.0" }
+rand = { version = "0.8.4" }
+bincode = { version = "1.3.3" }
+ark-serialize = { version = "0.5.0", default-features = false }
+num-integer = { version = "0.1.44" }
