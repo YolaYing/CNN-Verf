@@ -45,6 +45,7 @@ use ark_sumcheck::ml_sumcheck::{
 // use verifier::VerifierMessage;
 use super::verifier::VerifierMessage;
 
+#[derive(Clone)]
 pub struct Prover {
     pub Y: Rc<DenseMultilinearExtension<F>>, // Y(j,s)
     pub W: Rc<DenseMultilinearExtension<F>>, // W(i,j,b)

@@ -81,18 +81,18 @@ fn read_and_prepare_data() -> (Vec<F>, Vec<F>, Vec<F>) {
 
 #[test]
 fn test_prover_verifier() {
-    // Step 1: 准备数据
+    // Step 1: prapare data
     // for zk input X: 4(3->2^2)*2048(34*34->2^11), using 2 variables representing input channel, 11 variables indexing image
     // for zk input W: 64*4(3->2^2)*128(3*34->2^7), using 6 variables representing output channel, 2 variables representing input channel, 7 variables indexing kernel
     // for zk output Y: 64*2048(34*37 -> 2^11), using 6 variables representing output channel, 11 variables indexing output data
     let (x, w, y) = read_and_prepare_data();
 
-    // Step 2: 计算变量数
-    let num_vars_j = 6; // 输出通道变量j:64 = 2^6
-    let num_vars_s = 11; // 输出位置变量s:2048 = 2^11
-    let num_vars_i = 2; // 输入通道变量i:4 = 2^2
-    let num_vars_a = 11; // 输入位置变量a:2048 = 2^11
-    let num_vars_b = 7; // 核位置变量b:128 = 2^7
+    // Step 2: calculate the number of variables
+    let num_vars_j = 6; // output channel j:64 = 2^6
+    let num_vars_s = 11; //output position index s:2048 = 2^11
+    let num_vars_i = 2; // input channel i:4 = 2^2
+    let num_vars_a = 11; // input position index a:2048 = 2^11
+    let num_vars_b = 7; // kernal position b:128 = 2^7
 
     let y_poly = DenseMultilinearExtension::from_evaluations_vec(num_vars_j + num_vars_s, y);
     let x_poly = DenseMultilinearExtension::from_evaluations_vec(num_vars_i + num_vars_a, x);
@@ -112,13 +112,13 @@ fn test_prover_verifier() {
 
     let verifier = Verifier::new(num_vars_j, num_vars_s, num_vars_i, num_vars_a, num_vars_b);
 
-    // Step 3: 模拟验证消息
+    // Step 3: mock verifier message
     let mut rng = test_rng();
     let r1_values: Vec<F> = (0..num_vars_j).map(|_| F::rand(&mut rng)).collect();
     let r = F::rand(&mut rng);
     let verifier_msg = VerifierMessage { r1_values, r };
 
-    // Step 4: Prover 生成证明
+    // Step 4: Prover generate proof
     let (
         proof_s,
         proof_f,
@@ -131,7 +131,7 @@ fn test_prover_verifier() {
         poly_info_g,
     ) = prover.prove(&mut rng, verifier_msg);
 
-    // Step 5: Verifier 验证证明
+    // Step 5: Verifier verify proof
 
     let result = verifier.verify(
         &proof_s,

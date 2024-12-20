@@ -11,6 +11,7 @@ use ark_serialize::CanonicalDeserialize;
 use ark_sumcheck::ml_sumcheck::{
     data_structures::PolynomialInfo, MLSumcheck, Proof as SumcheckProof,
 };
+#[derive(Clone, CanonicalDeserialize)]
 pub struct VerifierMessage<F: ark_ff::Field> {
     pub r1_values: Vec<F>,
     pub r: F,

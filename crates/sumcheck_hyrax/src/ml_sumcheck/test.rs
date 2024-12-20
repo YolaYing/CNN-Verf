@@ -1,3 +1,8 @@
+// use crate::ml_sumcheck::data_structures::ListOfProductsOfPolynomials;
+// use crate::ml_sumcheck::protocol::IPForMLSumcheck;
+// use crate::ml_sumcheck::MLSumcheck;
+// use crate::rng::Blake2b512Rng;
+// use crate::rng::FeedableRNG;
 // use ark_ff::Field;
 // use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 // use ark_std::rand::Rng;
@@ -5,11 +10,6 @@
 // use ark_std::rc::Rc;
 // use ark_std::vec::Vec;
 // use ark_std::{test_rng, UniformRand};
-// use ark_sumcheck::error::Error;
-// use ark_sumcheck::ml_sumcheck::{
-//     data_structures::ListOfProductsOfPolynomials, protocol::IPForMLSumcheck, MLSumcheck,
-// };
-// use ark_sumcheck::rng::{Blake2b512Rng, FeedableRNG};
 // use ark_test_curves::bls12_381::Fr;
 
 // fn random_product<F: Field, R: RngCore>(
@@ -100,8 +100,8 @@
 //     nv: usize,
 //     num_multiplicands_range: (usize, usize),
 //     num_products: usize,
-//     prover_rng: &mut impl FeedableRNG<Error = Error>,
-//     verifier_rng: &mut impl FeedableRNG<Error = Error>,
+//     prover_rng: &mut impl FeedableRNG<Error = crate::Error>,
+//     verifier_rng: &mut impl FeedableRNG<Error = crate::Error>,
 // ) {
 //     let mut rng = test_rng();
 //     let (poly, asserted_sum) =
