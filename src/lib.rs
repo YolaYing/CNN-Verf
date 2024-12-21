@@ -3,7 +3,7 @@ pub mod conv_padding;
 pub mod maxpool;
 pub mod relu;
 
-use ark_bn254::Bn254;
+use ark_bn254::{Bn254, Fr as ScalarField};
 use ark_ec::pairing::Pairing;
 
 pub type E = Bn254;

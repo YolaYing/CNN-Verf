@@ -294,12 +294,8 @@ dependencies = [
 name = "ark-sumcheck"
 version = "0.4.0"
 dependencies = [
- "ark-bn254",
- "ark-ec",
- "ark-ed-on-bls12-381",
  "ark-ff",
  "ark-poly",
- "ark-poly-commit",
  "ark-serialize",
  "ark-std",
  "blake2",
@@ -1380,6 +1376,7 @@ dependencies = [
  "logup",
  "merlin",
  "num-integer",
+ "pcs",
  "poly_iop",
  "rand",
  "rand_chacha",

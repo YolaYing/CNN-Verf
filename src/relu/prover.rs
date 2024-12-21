@@ -14,7 +14,10 @@
 //      1. conduct logup protocol to prove relu(y2) = y3
 
 use crate::{E, F};
+use ark_bn254::FrConfig;
 use ark_ec::pairing::Pairing;
+use ark_ff::Fp;
+use ark_ff::MontBackend;
 use ark_ff::{Field, PrimeField}; // for into_bigint
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::rand::Rng;
@@ -24,6 +27,7 @@ use ark_std::vec::Vec;
 use ark_std::UniformRand;
 use logup::{Logup, LogupProof};
 use merlin::Transcript;
+use pcs::multilinear_kzg::data_structures::MultilinearProverParam;
 
 // Sumcheck usage as per snippet
 use ark_sumcheck::ml_sumcheck::{
@@ -133,19 +137,80 @@ impl Prover {
         (proof, asserted_sum, poly_info)
     }
 
+    // // Prove step1_logup: remainder in [0, 2^Q-1]
+    // // a = remainder
+    // // t = merged sorted vector of [0..2^Q-1] and a
+    // // Return (commit, proof, a, t)
+    // pub fn prove_step1_logup(
+    //     &self,
+    // ) -> (Vec<<E as Pairing>::G1Affine>, LogupProof<E>, Vec<F>, Vec<F>) {
+    //     let a = self.remainder.clone();
+    //     let mut base: Vec<F> = (0..(1 << self.Q)).map(|x| F::from(x as u64)).collect();
+    //     let mut t = base;
+
+    //     let mut transcript = Transcript::new(b"Logup");
+    //     let ((pk, ck), commit) = Logup::process::<E>(20, &a);
+    //     let proof = Logup::prove::<E>(&a, &t, &pk, &mut transcript);
+
+    //     (commit, proof, a, t)
+    // }
+
+    // // Prove step2_logup: y3 = relu(y2)
+    // // a = y2 + alpha*y3
+    // // t = a (todo: confirm t range)
+    // // Return (commit, proof, a, t)
+    // pub fn prove_step2_logup(
+    //     &self,
+    // ) -> (Vec<<E as Pairing>::G1Affine>, LogupProof<E>, Vec<F>, Vec<F>) {
+    //     let mut rng = test_rng();
+    //     let alpha = F::rand(&mut rng);
+
+    //     let a: Vec<F> = self
+    //         .y2
+    //         .iter()
+    //         .zip(self.y3.iter())
+    //         .map(|(&y2_i, &y3_i)| y2_i + alpha * y3_i)
+    //         .collect();
+    //     let t = a.clone(); // todo: confirm t range
+
+    //     let mut transcript = Transcript::new(b"Logup");
+    //     let ((pk, ck), commit) = Logup::process::<E>(20, &a);
+    //     let proof = Logup::prove::<E>(&a, &t, &pk, &mut transcript);
+
+    //     (commit, proof, a, t)
+    // }
+    // Process function extracted for reuse
+    pub fn process_logup<E: Pairing<ScalarField = Fp<MontBackend<FrConfig, 4>, 4>>>(
+        &self,
+        a: &Vec<F>,
+        params: usize,
+    ) -> (
+        Vec<<E as Pairing>::G1Affine>,
+        MultilinearProverParam<E>,
+        Vec<F>,
+    ) {
+        let mut base: Vec<F> = (0..(1 << params)).map(|x| F::from(x as u64)).collect();
+        let t = base.clone();
+
+        let ((pk, ck), commit) = Logup::process::<E>(params, a);
+
+        (commit, pk, t)
+    }
+
     // Prove step1_logup: remainder in [0, 2^Q-1]
     // a = remainder
     // t = merged sorted vector of [0..2^Q-1] and a
     // Return (commit, proof, a, t)
     pub fn prove_step1_logup(
         &self,
+        commit: Vec<<E as Pairing>::G1Affine>,
+        pk: MultilinearProverParam<E>,
+        t: Vec<F>,
     ) -> (Vec<<E as Pairing>::G1Affine>, LogupProof<E>, Vec<F>, Vec<F>) {
         let a = self.remainder.clone();
-        let mut base: Vec<F> = (0..(1 << self.Q)).map(|x| F::from(x as u64)).collect();
-        let mut t = base;
-
         let mut transcript = Transcript::new(b"Logup");
-        let ((pk, ck), commit) = Logup::process::<E>(20, &a);
+
+        // Prove
         let proof = Logup::prove::<E>(&a, &t, &pk, &mut transcript);
 
         (commit, proof, a, t)
@@ -157,6 +222,9 @@ impl Prover {
     // Return (commit, proof, a, t)
     pub fn prove_step2_logup(
         &self,
+        commit: Vec<<E as Pairing>::G1Affine>,
+        pk: MultilinearProverParam<E>,
+        t: Vec<F>,
     ) -> (Vec<<E as Pairing>::G1Affine>, LogupProof<E>, Vec<F>, Vec<F>) {
         let mut rng = test_rng();
         let alpha = F::rand(&mut rng);
@@ -167,10 +235,10 @@ impl Prover {
             .zip(self.y3.iter())
             .map(|(&y2_i, &y3_i)| y2_i + alpha * y3_i)
             .collect();
-        let t = a.clone(); // todo: confirm t range
 
         let mut transcript = Transcript::new(b"Logup");
-        let ((pk, ck), commit) = Logup::process::<E>(20, &a);
+
+        // Prove
         let proof = Logup::prove::<E>(&a, &t, &pk, &mut transcript);
 
         (commit, proof, a, t)
