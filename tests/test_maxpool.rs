@@ -116,8 +116,14 @@ fn test_maxpool_realnum_proof() {
     // Prove using sumcheck
     let (sumcheck_proof, asserted_sum, poly_info) = prover.prove_sumcheck(&mut rng);
 
+    // Generate processed inequalities (excluded from prover time measurement)
+    let (expanded_y2, combined_y1, a, range, commit, pk, ck) = prover.process_inequalities();
+
     // Prove inequalities using logup
-    let (commit, logup_proof, a, range) = prover.prove_inequalities();
+    // let (commit, logup_proof, a, range) = prover.prove_inequalities();
+    // Prove inequalities using logup
+    let (commit_logup, logup_proof, a_proof, range_proof) =
+        prover.prove_inequalities(&a, &range, &pk, commit.clone());
 
     // Verifier setup
     let verifier = Verifier::new(num_vars_y1);
@@ -129,8 +135,12 @@ fn test_maxpool_realnum_proof() {
     );
 
     // Verify logup proof
+    // assert!(
+    //     verifier.verify_inequalities(&commit, &logup_proof, &a, &range),
+    //     "Logup verification failed"
+    // );
     assert!(
-        verifier.verify_inequalities(&commit, &logup_proof, &a, &range),
+        verifier.verify_inequalities(&commit_logup, &logup_proof, &a_proof, &range_proof, &ck),
         "Logup verification failed"
     );
 }

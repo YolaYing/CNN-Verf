@@ -4,6 +4,7 @@ use ark_ff::PrimeField;
 use ark_std::vec::Vec;
 use logup::{Logup, LogupProof};
 use merlin::Transcript;
+use pcs::multilinear_kzg::data_structures::MultilinearVerifierParam;
 
 // For sumcheck
 use ark_sumcheck::ml_sumcheck::{
@@ -44,30 +45,52 @@ impl Verifier {
 
     // Verify step1 logup proof: remainder in [0, 2^Q-1]
     // Given commit, proof, a, t from Prover
+    // pub fn verify_step1_logup(
+    //     &self,
+    //     commit: &Vec<<E as Pairing>::G1Affine>,
+    //     proof: &LogupProof<E>,
+    //     a: &Vec<F>,
+    //     t: &Vec<F>,
+    // ) -> bool {
+    //     let mut transcript = Transcript::new(b"Logup");
+    //     let ((pk, ck), commit) = Logup::process::<E>(20, &a);
+    //     Logup::verify::<E>(a, t, &commit, &ck, proof, &mut transcript)
+    // }
     pub fn verify_step1_logup(
         &self,
         commit: &Vec<<E as Pairing>::G1Affine>,
         proof: &LogupProof<E>,
         a: &Vec<F>,
         t: &Vec<F>,
+        ck: &MultilinearVerifierParam<E>,
     ) -> bool {
         let mut transcript = Transcript::new(b"Logup");
-        let ((pk, ck), commit) = Logup::process::<E>(20, &a);
-        Logup::verify::<E>(a, t, &commit, &ck, proof, &mut transcript)
+        Logup::verify::<E>(a, t, &commit, ck, proof, &mut transcript)
     }
     // Logup::verify(&a, &t, &commit, &ck, &proof, &mut transcript);
 
     // Verify step2 logup proof: y3 = relu(y2)
     // Given commit, proof, a, t from Prover
+    // pub fn verify_step2_logup(
+    //     &self,
+    //     commit: &Vec<<E as Pairing>::G1Affine>,
+    //     proof: &LogupProof<E>,
+    //     a: &Vec<F>,
+    //     t: &Vec<F>,
+    // ) -> bool {
+    //     let mut transcript = Transcript::new(b"Logup");
+    //     let ((pk, ck), commit) = Logup::process::<E>(20, &a);
+    //     Logup::verify::<E>(a, t, &commit, &ck, proof, &mut transcript)
+    // }
     pub fn verify_step2_logup(
         &self,
         commit: &Vec<<E as Pairing>::G1Affine>,
         proof: &LogupProof<E>,
         a: &Vec<F>,
         t: &Vec<F>,
+        ck: &MultilinearVerifierParam<E>,
     ) -> bool {
         let mut transcript = Transcript::new(b"Logup");
-        let ((pk, ck), commit) = Logup::process::<E>(20, &a);
-        Logup::verify::<E>(a, t, &commit, &ck, proof, &mut transcript)
+        Logup::verify::<E>(a, t, &commit, ck, proof, &mut transcript)
     }
 }

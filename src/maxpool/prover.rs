@@ -8,12 +8,15 @@
 //  3. use logup protocol to prove y2>=y1(0,0,b3,...,bn), y2>=y1(0,1,b3,...,bn), y2>=y1(1,0,b3,...,bn), y2>=y1(1,1,b3,...,bn)
 //      f = y2(b3,b4,...,bn) - y1(b1,b2,...,bn)>=0
 
+use std::ops::Mul;
+
 use crate::{E, F};
 use ark_crypto_primitives::crh::sha256::digest::typenum::Length;
 // Import F from lib.rs
 use ark_ec::pairing::Pairing;
 use ark_ff::{One, Zero};
 use ark_poly::DenseMultilinearExtension;
+use ark_poly_commit::ipa_pc::Commitment;
 use ark_std::rand::Rng;
 use ark_std::rc::Rc;
 use ark_std::vec::Vec;
@@ -23,6 +26,7 @@ use ark_sumcheck::ml_sumcheck::{
 };
 use logup::{Logup, LogupProof};
 use merlin::Transcript;
+use pcs::multilinear_kzg::data_structures::{MultilinearProverParam, MultilinearVerifierParam};
 
 // MAX_VALUE_IN_Y
 const MAX_VALUE_IN_Y: u64 = 65536;
@@ -32,6 +36,63 @@ pub struct Prover {
     pub y2: Rc<DenseMultilinearExtension<F>>,
     pub num_vars_y1: usize,
     pub num_vars_y2: usize,
+}
+
+fn reorder_variable_groups(
+    poly: &DenseMultilinearExtension<F>,
+    group_sizes: &[usize],
+    new_order: &[usize],
+) -> DenseMultilinearExtension<F> {
+    // Reorder the variables of `poly` according to `new_order` of groups.
+    // Steps:
+    // 1. Compute original offsets
+    let mut original_offsets = Vec::with_capacity(group_sizes.len());
+    let mut acc = 0;
+    for &size in group_sizes {
+        original_offsets.push(acc);
+        acc += size;
+    }
+    let num_vars = poly.num_vars;
+    assert_eq!(acc, num_vars, "sum of group_sizes must equal num_vars");
+
+    // Compute new offsets based on new_order
+    let mut new_group_offsets = Vec::with_capacity(group_sizes.len());
+    let mut cur = 0;
+    for &g in new_order {
+        new_group_offsets.push(cur);
+        cur += group_sizes[g];
+    }
+
+    // We now have a permutation of groups. We need a permutation of each variable's position.
+    // Create a mapping from old var index to new var index
+    let mut var_map = vec![0; num_vars];
+    {
+        let mut current_new_offset = vec![0; group_sizes.len()];
+        for (new_gpos, &old_g) in new_order.iter().enumerate() {
+            let start_old = original_offsets[old_g];
+            let size_old = group_sizes[old_g];
+            let start_new = new_group_offsets[new_gpos];
+            for k in 0..size_old {
+                var_map[start_old + k] = start_new + k;
+            }
+        }
+    }
+
+    // Reorder evaluations:
+    // For each old_index in [0..2^num_vars], compute new_index by rearranging bits.
+    let size = 1 << num_vars;
+    let mut new_evals = vec![F::zero(); size];
+    for old_index in 0..size {
+        let mut new_index = 0;
+        for v in 0..num_vars {
+            let bit = (old_index >> v) & 1;
+            let new_pos = var_map[num_vars - 1 - v];
+            new_index |= bit << num_vars - 1 - new_pos;
+        }
+        new_evals[new_index] = poly.evaluations[old_index];
+    }
+
+    DenseMultilinearExtension::from_evaluations_vec(num_vars, new_evals)
 }
 
 impl Prover {
@@ -154,13 +215,79 @@ impl Prover {
 
     //     (commit, proof, a, t)
     // }
-    pub fn prove_inequalities(
+
+    // pub fn prove_inequalities(
+    //     &self,
+    // ) -> (
+    //     Vec<<E as Pairing>::G1Affine>, // Commitments
+    //     LogupProof<E>,                 // Logup proof
+    //     Vec<F>,                        // Polynomial evaluations (a)
+    //     Vec<F>,                        // Target range (t)
+    // ) {
+    //     type E = crate::E;
+
+    //     // Step 1: Expand y2 to match the dimensions of y1
+    //     let num_vars_y1 = self.num_vars_y1;
+    //     let num_vars_y2 = self.num_vars_y2;
+
+    //     let mut expanded_y2 = vec![F::zero(); 1 << num_vars_y1];
+    //     for i in 0..(1 << num_vars_y2) {
+    //         for b1b2 in 0..(1 << (num_vars_y1 - num_vars_y2)) {
+    //             let index = b1b2 * (1 << num_vars_y2) + i;
+    //             expanded_y2[index] = self.y2.evaluations[i];
+    //         }
+    //     }
+
+    //     // Step 2: Combine slices of y1 into a single polynomial
+    //     let (y1_00, y1_01, y1_10, y1_11) = self.evaluate_y1_slices();
+    //     let combined_y1: Vec<F> = (0..(1 << num_vars_y1))
+    //         .map(|i| {
+    //             let b1b2_index = i >> num_vars_y2;
+    //             match b1b2_index {
+    //                 0b00 => y1_00.evaluations[i & ((1 << num_vars_y2) - 1)],
+    //                 0b01 => y1_01.evaluations[i & ((1 << num_vars_y2) - 1)],
+    //                 0b10 => y1_10.evaluations[i & ((1 << num_vars_y2) - 1)],
+    //                 0b11 => y1_11.evaluations[i & ((1 << num_vars_y2) - 1)],
+    //                 _ => {
+    //                     eprintln!(
+    //                         "Unexpected b1b2_index: {} for i: {}, num_vars_y1: {}, num_vars_y2: {}",
+    //                         b1b2_index, i, num_vars_y1, num_vars_y2
+    //                     );
+    //                     unreachable!()
+    //                 }
+    //             }
+    //         })
+    //         .collect();
+
+    //     // Step 3: Compute a as a[i] = expanded_y2[i] - combined_y1[i]
+    //     let a: Vec<F> = expanded_y2
+    //         .iter()
+    //         .zip(combined_y1.iter())
+    //         .map(|(y2_val, y1_val)| *y2_val - *y1_val)
+    //         .collect();
+
+    //     // Step 4: Define the target range t as [0, F::MAX]
+    //     let range: Vec<F> = (0..=MAX_VALUE_IN_Y).map(|val| F::from(val)).collect();
+    //     let ((pk, ck), commit) = Logup::process::<E>(num_vars_y1, &a);
+
+    //     // Step 5: Use Logup to prove that a ∈ t
+    //     let mut transcript = Transcript::new(b"Logup");
+    //     let proof = Logup::prove::<E>(&a, &range, &pk, &mut transcript);
+
+    //     // Return commitments, proof, and polynomial evaluations
+    //     (commit, proof, a, range)
+    // }
+    // Process inequalities
+    pub fn process_inequalities(
         &self,
     ) -> (
-        Vec<<E as Pairing>::G1Affine>, // Commitments
-        LogupProof<E>,                 // Logup proof
+        Vec<F>,                        // Expanded y2
+        Vec<F>,                        // Combined y1
         Vec<F>,                        // Polynomial evaluations (a)
         Vec<F>,                        // Target range (t)
+        Vec<<E as Pairing>::G1Affine>, // Commitments
+        MultilinearProverParam<E>,     // Public keys (pk)
+        MultilinearVerifierParam<E>,   // Public keys (ck)
     ) {
         type E = crate::E;
 
@@ -186,13 +313,7 @@ impl Prover {
                     0b01 => y1_01.evaluations[i & ((1 << num_vars_y2) - 1)],
                     0b10 => y1_10.evaluations[i & ((1 << num_vars_y2) - 1)],
                     0b11 => y1_11.evaluations[i & ((1 << num_vars_y2) - 1)],
-                    _ => {
-                        eprintln!(
-                            "Unexpected b1b2_index: {} for i: {}, num_vars_y1: {}, num_vars_y2: {}",
-                            b1b2_index, i, num_vars_y1, num_vars_y2
-                        );
-                        unreachable!()
-                    }
+                    _ => unreachable!(),
                 }
             })
             .collect();
@@ -207,12 +328,32 @@ impl Prover {
         // Step 4: Define the target range t as [0, F::MAX]
         let range: Vec<F> = (0..=MAX_VALUE_IN_Y).map(|val| F::from(val)).collect();
 
-        // Step 5: Use Logup to prove that a ∈ t
-        let mut transcript = Transcript::new(b"Logup");
+        // Step 5: Generate public keys and commitments
         let ((pk, ck), commit) = Logup::process::<E>(num_vars_y1, &a);
-        let proof = Logup::prove::<E>(&a, &range, &pk, &mut transcript);
 
-        // Return commitments, proof, and polynomial evaluations
-        (commit, proof, a, range)
+        (expanded_y2, combined_y1, a, range, commit, pk, ck)
+    }
+
+    // Prove inequalities
+    pub fn prove_inequalities(
+        &self,
+        a: &Vec<F>,
+        range: &Vec<F>,
+        pk: &MultilinearProverParam<E>,
+        commit: Vec<<E as Pairing>::G1Affine>,
+    ) -> (
+        Vec<<E as Pairing>::G1Affine>, // Commitments
+        LogupProof<E>,                 // Logup proof
+        Vec<F>,                        // Polynomial evaluations (a)
+        Vec<F>,                        // Target range (t)
+    ) {
+        type E = crate::E;
+
+        // Step 6: Use Logup to prove that a ∈ t
+        let mut transcript = Transcript::new(b"Logup");
+        // let ((_, _), commit) = Logup::process::<E>(self.num_vars_y1, a);
+        let proof = Logup::prove::<E>(a, range, pk, &mut transcript);
+
+        (commit, proof, a.clone(), range.clone())
     }
 }

@@ -6,6 +6,7 @@ use ark_sumcheck::ml_sumcheck::{
 };
 use logup::{Logup, LogupProof};
 use merlin::Transcript;
+use pcs::multilinear_kzg::data_structures::MultilinearVerifierParam;
 
 pub struct Verifier {
     pub num_vars_y1: usize, // Number of variables for y1
@@ -37,9 +38,9 @@ impl Verifier {
         proof: &LogupProof<E>,
         a: &Vec<F>,
         range: &Vec<F>,
+        ck: &MultilinearVerifierParam<E>,
     ) -> bool {
         let mut transcript = Transcript::new(b"Logup");
-        let ((pk, ck), commit) = Logup::process::<E>(self.num_vars_y1 as usize, &a);
         Logup::verify::<E>(a, range, &commit, &ck, proof, &mut transcript)
     }
 }

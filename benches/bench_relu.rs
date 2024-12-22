@@ -71,9 +71,10 @@ fn benchmark_relu_prover_verifier(c: &mut Criterion) {
     //     });
     // });
     // Precompute logup data outside of the benchmark
-    let (commit_step1, pk_step1, t_step1) =
+    let (commit_step1, pk_step1, ck_step1, t_step1) =
         prover.process_logup(&prover.remainder, prover.Q as usize);
-    let (commit_step2, pk_step2, t_step2) = prover.process_logup(&prover.y3, prover.Q as usize);
+    let (commit_step2, pk_step2, ck_step2, t_step2) =
+        prover.process_logup(&prover.y3, prover.Q as usize);
 
     c.bench_function("Prover total prove", |b| {
         b.iter(|| {
@@ -84,18 +85,18 @@ fn benchmark_relu_prover_verifier(c: &mut Criterion) {
         });
     });
 
-    c.bench_function("Verifier total verification", |b| {
-        let mut rng = test_rng();
-        let (sumcheck_proof, asserted_sum, poly_info) = prover.prove_step1_sumcheck(&mut rng);
-        let (commit_step1, proof_step1, a_step1, t_step1) =
-            prover.prove_step1_logup(commit_step1.clone(), pk_step1.clone(), t_step1.clone());
-        let (commit_step2, proof_step2, a_step2, t_step2) =
-            prover.prove_step2_logup(commit_step2.clone(), pk_step2.clone(), t_step2.clone());
+    let mut rng = test_rng();
+    let (sumcheck_proof, asserted_sum, poly_info) = prover.prove_step1_sumcheck(&mut rng);
+    let (commit_step1, proof_step1, a_step1, t_step1) =
+        prover.prove_step1_logup(commit_step1.clone(), pk_step1.clone(), t_step1.clone());
+    let (commit_step2, proof_step2, a_step2, t_step2) =
+        prover.prove_step2_logup(commit_step2.clone(), pk_step2.clone(), t_step2.clone());
 
+    c.bench_function("Verifier total verification", |b| {
         b.iter(|| {
             verifier.verify_step1_sumcheck(&sumcheck_proof, asserted_sum, &poly_info);
-            verifier.verify_step1_logup(&commit_step1, &proof_step1, &a_step1, &t_step1);
-            verifier.verify_step2_logup(&commit_step2, &proof_step2, &a_step2, &t_step2);
+            verifier.verify_step1_logup(&commit_step1, &proof_step1, &a_step1, &t_step1, &ck_step1);
+            verifier.verify_step2_logup(&commit_step2, &proof_step2, &a_step2, &t_step2, &ck_step2);
         });
     });
 }

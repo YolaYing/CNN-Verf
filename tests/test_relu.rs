@@ -84,19 +84,32 @@ fn test_full_prove_and_verify_with_mock_data() {
     // let (commit_step2, proof_step2, a_step2, t_step2) = prover.prove_step2_logup();
     // assert!(verifier.verify_step2_logup(&commit_step2, &proof_step2, &a_step2, &t_step2));
 
-    let (commit_step1, pk_step1, t_step1) =
+    let (commit_step1, pk_step1, ck_step1, t_step1) =
         prover.process_logup(&prover.remainder, prover.Q as usize);
 
     // Step 1: Logup remainder range proof
     let (commit_step1, proof_step1, a_step1, t_step1) =
         prover.prove_step1_logup(commit_step1, pk_step1, t_step1);
-    assert!(verifier.verify_step1_logup(&commit_step1, &proof_step1, &a_step1, &t_step1));
+    assert!(verifier.verify_step1_logup(
+        &commit_step1,
+        &proof_step1,
+        &a_step1,
+        &t_step1,
+        &ck_step1
+    ));
 
     // Step 2: Logup relu proof
-    let (commit_step2, pk_step2, t_step2) = prover.process_logup(&prover.y3, prover.Q as usize);
+    let (commit_step2, pk_step2, ck_step2, t_step2) =
+        prover.process_logup(&prover.y3, prover.Q as usize);
     let (commit_step2, proof_step2, a_step2, t_step2) =
         prover.prove_step2_logup(commit_step2, pk_step2, t_step2);
-    assert!(verifier.verify_step2_logup(&commit_step2, &proof_step2, &a_step2, &t_step2));
+    assert!(verifier.verify_step2_logup(
+        &commit_step2,
+        &proof_step2,
+        &a_step2,
+        &t_step2,
+        &ck_step2
+    ));
 
     println!("Test with mock data passed successfully");
 }

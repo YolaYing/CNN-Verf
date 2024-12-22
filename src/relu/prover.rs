@@ -27,7 +27,7 @@ use ark_std::vec::Vec;
 use ark_std::UniformRand;
 use logup::{Logup, LogupProof};
 use merlin::Transcript;
-use pcs::multilinear_kzg::data_structures::MultilinearProverParam;
+use pcs::multilinear_kzg::data_structures::{MultilinearProverParam, MultilinearVerifierParam};
 
 // Sumcheck usage as per snippet
 use ark_sumcheck::ml_sumcheck::{
@@ -187,14 +187,16 @@ impl Prover {
     ) -> (
         Vec<<E as Pairing>::G1Affine>,
         MultilinearProverParam<E>,
+        MultilinearVerifierParam<E>,
         Vec<F>,
     ) {
         let mut base: Vec<F> = (0..(1 << params)).map(|x| F::from(x as u64)).collect();
         let t = base.clone();
 
-        let ((pk, ck), commit) = Logup::process::<E>(params, a);
+        let mut transcript = Transcript::new(b"Logup");
+        let ((pk, ck), commit) = Logup::process::<E>(20, a);
 
-        (commit, pk, t)
+        (commit, pk, ck, t)
     }
 
     // Prove step1_logup: remainder in [0, 2^Q-1]
@@ -235,6 +237,9 @@ impl Prover {
             .zip(self.y3.iter())
             .map(|(&y2_i, &y3_i)| y2_i + alpha * y3_i)
             .collect();
+        // t = concate(y2, (1+alpha)*y2)
+        let mut t = self.y2.clone();
+        t.extend(self.y2.iter().map(|&y2_i| y2_i + y2_i * alpha));
 
         let mut transcript = Transcript::new(b"Logup");
 
