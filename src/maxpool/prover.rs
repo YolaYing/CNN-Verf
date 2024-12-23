@@ -38,7 +38,7 @@ pub struct Prover {
     pub num_vars_y2: usize,
 }
 
-fn reorder_variable_groups(
+pub fn reorder_variable_groups(
     poly: &DenseMultilinearExtension<F>,
     group_sizes: &[usize],
     new_order: &[usize],
