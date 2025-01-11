@@ -1372,6 +1372,7 @@ dependencies = [
  "ark-sumcheck",
  "ark-test-curves",
  "bincode",
+ "byteorder",
  "criterion",
  "logup",
  "merlin",

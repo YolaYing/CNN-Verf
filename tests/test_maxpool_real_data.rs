@@ -7,6 +7,8 @@ use ark_std::{
     fs::File,
     io::{self, BufRead, BufReader},
 };
+use rand_chacha::rand_core::le;
+use std::num::ParseIntError;
 use std::path::Path;
 use zkconv::{
     maxpool::prover::reorder_variable_groups,
@@ -176,10 +178,6 @@ fn verify_y2_matches_y1_slices_per_channel(
     // Iterate over each channel
     for channel in 0..num_channels {
         println!("Channel {}:", channel); // Print current channel
-        println!(
-            "y1 values for this channel: {:?}",
-            &y1_values[channel * data_size_y1..(channel + 1) * data_size_y1]
-        ); // Print all y1 values for the channel
 
         for sub_i in 0..data_size_y2 {
             let mut max_val = F::zero();
@@ -204,12 +202,30 @@ fn verify_y2_matches_y1_slices_per_channel(
 
             // Verify that the maximum value matches the corresponding y2 value
             let y2_index = channel * data_size_y2 + sub_i; // Index in y2
-            println!("  y2 value at sub_i {}: {:?}", sub_i, y2_values[y2_index]);
             if max_val != y2_values[y2_index] {
                 println!(
-                    "Mismatch in channel {} at sub_i {}: expected {:?}, found {:?}",
-                    channel, sub_i, max_val, y2_values[y2_index]
+                    "Mismatch in channel {} at sub_i {}: expected {:?}, found {:?}, y2 index {:?}",
+                    channel, sub_i, max_val, y2_values[y2_index], y2_index,
                 );
+                println!(
+                    "index for y1 slices: {:?}, {:?}, {:?}, {:?}, channel: {:?}, data_size_y1: {:?}, data_size_y2: {:?}, sub_i: {:?}",
+                    channel * data_size_y1 + 0 * data_size_y2 + sub_i,
+                    channel * data_size_y1 + 1 * data_size_y2 + sub_i,
+                    channel * data_size_y1 + 2 * data_size_y2 + sub_i,
+                    channel * data_size_y1 + 3 * data_size_y2 + sub_i,
+                    channel,
+                    data_size_y1,
+                    data_size_y2,
+                    sub_i,
+                );
+                // print y2 values in this channel
+                for i in 0..data_size_y2 {
+                    println!(
+                        "  y2 value at sub_i {}: {:?}",
+                        i,
+                        y2_values[channel * data_size_y2 + i]
+                    );
+                }
                 return false;
             }
         }
@@ -217,6 +233,226 @@ fn verify_y2_matches_y1_slices_per_channel(
 
     // All channels pass verification
     true
+}
+
+/// Verify the maxpool constraints based on Python logic
+/// Parameters:
+/// - `in_values`: DenseMultilinearExtension for input values
+/// - `out_values`: DenseMultilinearExtension for output values
+/// - `maxpool_in_channel`: Number of input channels
+/// - `maxpool_in_data`: Size of input data per channel
+/// - `maxpool_out_data`: Size of output data per channel
+///
+/// Returns:
+/// - `Result<(), String>`: Ok if the data passes the constraints, Err with an error message otherwise
+fn verify_maxpool_constraints(
+    in_values: &DenseMultilinearExtension<F>,
+    out_values: &DenseMultilinearExtension<F>,
+    maxpool_in_channel: usize,
+    maxpool_in_data: usize,
+    maxpool_out_data: usize,
+) -> Result<(), String> {
+    // Convert DenseMultilinearExtension values to vectors
+    let in_values = in_values.to_evaluations();
+    let out_values = out_values.to_evaluations();
+
+    // Ensure input and output sizes are consistent with constraints
+    if in_values.len() != maxpool_in_channel * maxpool_in_data {
+        return Err(format!(
+            "Invalid input size: expected {}, got {}",
+            maxpool_in_channel * maxpool_in_data,
+            in_values.len()
+        ));
+    }
+    if out_values.len() != maxpool_in_channel * maxpool_out_data {
+        return Err(format!(
+            "Invalid output size: expected {}, got {}",
+            maxpool_in_channel * maxpool_out_data,
+            out_values.len()
+        ));
+    }
+
+    // Verify constraints
+    for co in 0..maxpool_in_channel {
+        for x in 0..maxpool_out_data {
+            let i = x / 16;
+            let j = x % 16;
+
+            // Extract the 4 values to be maxpooled
+            let s = [
+                in_values[co * maxpool_in_data + 32 * 2 * i + j * 2],
+                in_values[co * maxpool_in_data + 32 * 2 * i + j * 2 + 1],
+                in_values[co * maxpool_in_data + 32 * (2 * i + 1) + j * 2],
+                in_values[co * maxpool_in_data + 32 * (2 * i + 1) + j * 2 + 1],
+            ];
+
+            // Compute the maximum value
+            let max_value = *s.iter().max().unwrap();
+            // print channel, x, index of invalues, value of invalues, max_value, index of outvalues, value of outvalues
+            if co == 2 {
+                println!(
+                    "channel: {}, x: {}, in index1: {}, index2: {}, index3: {}, index4:{}, in values: {:?}, max_value: {}, out index: {}, value: {}",
+                    co,
+                    x,
+                    co * maxpool_in_data + 32 * 2 * i + j * 2,
+                    co * maxpool_in_data + 32 * 2 * i + j * 2 + 1,
+                    co * maxpool_in_data + 32 * (2 * i + 1) + j * 2,
+                    co * maxpool_in_data + 32 * (2 * i + 1) + j * 2 + 1,
+                    s,
+                    max_value,
+                    co * maxpool_out_data + x,
+                    out_values[co * maxpool_out_data + x]
+                );
+            }
+
+            // Check against the output value
+            if max_value != out_values[co * maxpool_out_data + x] {
+                return Err(format!(
+                    "Mismatch at channel {} and index {}: expected {}, found {}",
+                    co,
+                    x,
+                    max_value,
+                    out_values[co * maxpool_out_data + x]
+                ));
+            }
+        }
+    }
+
+    // All checks passed
+    Ok(())
+}
+
+#[test]
+fn test_verify_maxpool_constraints() {
+    let file_path = "./dat/dat/maxpool_layer_5.txt";
+
+    let (
+        maxpool_in_values,
+        maxpool_out_values,
+        maxpool_in_channel,
+        maxpool_in_data,
+        maxpool_out_channel,
+        maxpool_out_data,
+    ) = read_data_from_file(file_path).expect("Failed to read data file");
+
+    //  let y1_poly = DenseMultilinearExtension::from_evaluations_vec(num_vars_y1, maxpool_in_values);
+    // let y2_poly = DenseMultilinearExtension::from_evaluations_vec(num_vars_y2, maxpool_out_values);
+
+    // Calculate necessary parameters
+    let num_vars_in_data = maxpool_in_data.next_power_of_two().trailing_zeros() as usize;
+    let num_vars_in_channel = maxpool_in_channel.next_power_of_two().trailing_zeros() as usize;
+    let num_vars_out_data = maxpool_out_data.next_power_of_two().trailing_zeros() as usize;
+    let num_vars_out_channel = maxpool_out_channel.next_power_of_two().trailing_zeros() as usize;
+    println!("Number of variables in input data: {}", num_vars_in_data);
+    println!(
+        "Number of variables in input channel: {}",
+        num_vars_in_channel
+    );
+    println!("Number of variables in output data: {}", num_vars_out_data);
+    println!(
+        "Number of variables in output channel: {}",
+        num_vars_out_channel
+    );
+    let num_vars_y1 = num_vars_in_data + num_vars_in_channel;
+    let num_vars_y2 = num_vars_out_data + num_vars_out_channel;
+    println!("Number of variables in y1: {}", num_vars_y1);
+    println!("Number of variables in y2: {}", num_vars_y2);
+
+    let in_values = DenseMultilinearExtension::from_evaluations_vec(num_vars_y1, maxpool_in_values);
+    let out_values =
+        DenseMultilinearExtension::from_evaluations_vec(num_vars_y2, maxpool_out_values);
+
+    match verify_maxpool_constraints(
+        &in_values,
+        &out_values,
+        maxpool_in_channel,
+        maxpool_in_data,
+        maxpool_out_data,
+    ) {
+        Ok(_) => println!("All constraints verified successfully!"),
+        Err(err) => panic!("Verification failed: {}", err),
+    }
+}
+
+fn verify_y2_matches_y1(
+    y1: &DenseMultilinearExtension<F>,
+    y2: &DenseMultilinearExtension<F>,
+    num_b2b3: usize, // number of (b2, b3, ...) groups
+    num_channels: usize,
+) -> bool {
+    for channel in 0..num_channels {
+        for b2b3 in 0..(1 << num_b2b3) {
+            let mut max_val = F::zero();
+            for i in 0..2 {
+                for j in 0..2 {
+                    let idx_y1 = i * (1 << (num_b2b3 + num_channels + 2 - 1))
+                        + j * (1 << (num_b2b3 + num_channels + 2 - 2))
+                        + b2b3 * (1 << num_channels)
+                        + channel;
+                    max_val = max_val.max(y1[idx_y1].clone());
+
+                    if channel == 2 {
+                        println!(
+                            "channel: {}, b2b3: {}, i: {}, j: {}, idx_y1: {}, value: {}",
+                            channel, b2b3, i, j, idx_y1, y1[idx_y1]
+                        );
+                    }
+                }
+            }
+
+            let idx_y2 = b2b3 * (1 << num_channels) + channel; // 只用 b2, b3, channel 拼接
+            if channel == 2 {
+                println!(
+                    "channel: {}, b2b3: {}, idx_y2: {}, value: {}",
+                    channel, b2b3, idx_y2, y2[idx_y2]
+                );
+            }
+            if max_val != y2[idx_y2] {
+                println!(
+                    "Mismatch for (channel: {}, b2b3: {}): expected {:?}, found {:?}",
+                    channel, b2b3, max_val, y2[idx_y2]
+                );
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn switch_to_little_endian_and_convert(
+    num_vars: usize,
+    values: &Vec<F>,
+) -> DenseMultilinearExtension<F> {
+    // Total number of elements based on the number of variables
+    let num_elements = 1 << num_vars;
+
+    // Check the input size
+    assert_eq!(
+        values.len(),
+        num_elements,
+        "Values size does not match the number of variables."
+    );
+
+    // Convert indices to little-endian
+    let mut reordered_values = vec![F::zero(); num_elements];
+    for (index, &value) in values.into_iter().enumerate() {
+        let little_endian_index = reverse_bits(index as u32, num_vars) as usize;
+        reordered_values[little_endian_index] = value;
+    }
+
+    // Create DenseMultilinearExtension with reordered values
+    DenseMultilinearExtension::from_evaluations_vec(num_vars, reordered_values)
+}
+
+/// Reverse the bits of an index up to the given number of variables
+fn reverse_bits(index: u32, num_vars: usize) -> u32 {
+    let mut reversed = 0;
+    for i in 0..num_vars {
+        if (index & (1 << i)) != 0 {
+            reversed |= 1 << (num_vars - 1 - i);
+        }
+    }
+    reversed
 }
 
 #[test]
@@ -261,38 +497,100 @@ fn test_maxpool_with_real_data() {
     println!("Number of variables in y1: {}", num_vars_y1);
     println!("Number of variables in y2: {}", num_vars_y2);
 
-    let y1_poly = DenseMultilinearExtension::from_evaluations_vec(num_vars_y1, maxpool_in_values);
-    let y2_poly = DenseMultilinearExtension::from_evaluations_vec(num_vars_y2, maxpool_out_values);
-
-    let num_channels = maxpool_in_channel; // e.g., 512 for y1
-    let data_size_y1 = maxpool_in_data; // e.g., 2*2=4 for y1
-    let data_size_y2 = maxpool_out_data; // e.g., 1*1=1 for y2
-
-    let is_valid = verify_y2_matches_y1_slices_per_channel(
-        &y1_poly,
-        &y2_poly,
-        num_vars_y1,
-        num_vars_y2,
-        num_channels,
-        data_size_y1,
-        data_size_y2,
-    );
-
+    // check maxpool_in_values.len() = 2^num_vars_y1
+    // check maxpool_out_values.len() = 2^num_vars_y2
     assert!(
-        is_valid,
-        "Mismatch between y1 slices and y2 values across channels"
+        maxpool_in_values.len() == (1 << num_vars_y1),
+        "Dimension mismatch for maxpool_in_values: expected {}, found {}",
+        1 << num_vars_y1,
+        maxpool_in_values.len()
     );
+    assert!(
+        maxpool_out_values.len() == (1 << num_vars_y2),
+        "Dimension mismatch for maxpool_out_values: expected {}, found {}",
+        1 << num_vars_y2,
+        maxpool_out_values.len()
+    );
+
+    // Switch the input and output values to little-endian form
+
+    let y1_poly =
+        DenseMultilinearExtension::from_evaluations_vec(num_vars_y1, maxpool_in_values.clone());
+    let y2_poly =
+        DenseMultilinearExtension::from_evaluations_vec(num_vars_y2, maxpool_out_values.clone());
+
+    // Convert indices and generate polynomials
+    // let y1_poly = switch_to_little_endian_and_convert(num_vars_y1, &maxpool_in_values);
+    // let y2_poly = switch_to_little_endian_and_convert(num_vars_y2, &maxpool_out_values);
+    // compare all y1_poly with maxpool_in_values
 
     // Reorder dimensions
-    let new_order = vec![1, 0];
+    // let new_order = vec![1, 0];
+    // let y1_reordered = reorder_variable_groups(
+    //     &y1_poly,
+    //     &[num_vars_in_channel, num_vars_in_data],
+    //     &new_order,
+    // );
+    // let y2_reordered = reorder_variable_groups(
+    //     &y2_poly,
+    //     &[num_vars_out_channel, num_vars_out_data],
+    //     &new_order,
+    // );
+    // let new_order = vec![4, 2, 0, 3, 1];
+    // let y1_reordered = reorder_variable_groups(
+    //     &y1_poly,
+    //     &[
+    //         num_vars_in_channel,
+    //         (num_vars_in_data - 2) / 2,
+    //         1,
+    //         (num_vars_in_data - 2) / 2,
+    //         1,
+    //     ],
+    //     &new_order,
+    // );
+
+    // let new_order = vec![1, 0];
+    // let y2_reordered = reorder_variable_groups(
+    //     &y2_poly,
+    //     &[num_vars_out_channel, num_vars_out_data],
+    //     &new_order,
+    // );
+
+    // define new order：new group i = old group new_order[i]
+    // let new_order = vec![0, 3, 1, 4, 2];
+    // let new_order = vec![0, 2, 4, 1, 3];
+    // switch i, j to the lowest bits
+    // let new_order = vec![2, 4, 1, 3, 0];
+    // let new_order = vec![0, 3, 1, 4, 2];
+    // num_vars_in_channel, (num_vars_in_data - 2) / 2, 1, (num_vars_in_data - 2) / 2, 1
+    // -> 1,1,(num_vars_in_data - 2) / 2,(num_vars_in_data - 2) / 2,num_vars_in_channel
+    let new_order = vec![4, 1, 3, 0, 2];
     let y1_reordered = reorder_variable_groups(
         &y1_poly,
-        &[num_vars_in_channel, num_vars_in_data],
+        // &[
+        //     num_vars_in_channel,
+        //     (num_vars_in_data - 2) / 2,
+        //     1,
+        //     (num_vars_in_data - 2) / 2,
+        //     1,
+        // ],
+        &[
+            1,
+            (num_vars_in_data - 2) / 2,
+            1,
+            (num_vars_in_data - 2) / 2,
+            num_vars_in_channel,
+        ],
         &new_order,
     );
+    println!("y1_reordered[4482]: {:?}", y1_reordered[4482]);
+    // let index = 0*2usize.pow(1+1+14)
+
+    // switch num_vars_in_data to the lowest bits
+    let new_order = vec![1, 0];
     let y2_reordered = reorder_variable_groups(
         &y2_poly,
-        &[num_vars_out_channel, num_vars_out_data],
+        &[num_vars_out_data, num_vars_out_channel],
         &new_order,
     );
 
@@ -300,9 +598,15 @@ fn test_maxpool_with_real_data() {
     let y2 = Rc::new(y2_reordered);
 
     // Verify that y2 matches the maximum of y1 slices
+    let num_channels = num_vars_in_channel;
+    let num_b2b3 = num_vars_out_data;
+    println!("num_channels: {}, num_b2b3: {}", num_channels, num_b2b3);
+
+    let is_valid = verify_y2_matches_y1(&y1, &y2, num_b2b3, num_channels);
+
     assert!(
-        verify_y2_matches_y1_slices(&y1, &y2, num_vars_y1, num_vars_y2),
-        "Mismatch between y1 slices and y2 values"
+        is_valid,
+        "Mismatch between y1 slices and y2 values across channels"
     );
 
     // Prover setup
@@ -337,4 +641,13 @@ fn test_maxpool_with_real_data() {
         ),
         "Logup verification failed"
     );
+}
+
+#[test]
+fn test_reverse_bits() {
+    // Case 1: Basic example
+    let index = 0b0101; // Decimal: 5
+    let num_vars = 4;
+    let reversed = reverse_bits(index, num_vars);
+    assert_eq!(reversed, 0b1010); // Expected: 10」
 }
