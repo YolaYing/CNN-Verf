@@ -390,23 +390,10 @@ fn verify_y2_matches_y1(
                         + b2b3 * (1 << num_channels)
                         + channel;
                     max_val = max_val.max(y1[idx_y1].clone());
-
-                    if channel == 2 {
-                        println!(
-                            "channel: {}, b2b3: {}, i: {}, j: {}, idx_y1: {}, value: {}",
-                            channel, b2b3, i, j, idx_y1, y1[idx_y1]
-                        );
-                    }
                 }
             }
 
             let idx_y2 = b2b3 * (1 << num_channels) + channel; // 只用 b2, b3, channel 拼接
-            if channel == 2 {
-                println!(
-                    "channel: {}, b2b3: {}, idx_y2: {}, value: {}",
-                    channel, b2b3, idx_y2, y2[idx_y2]
-                );
-            }
             if max_val != y2[idx_y2] {
                 println!(
                     "Mismatch for (channel: {}, b2b3: {}): expected {:?}, found {:?}",
@@ -458,7 +445,8 @@ fn reverse_bits(index: u32, num_vars: usize) -> u32 {
 #[test]
 fn test_maxpool_with_real_data() {
     let mut rng = test_rng();
-    let file_path = "./dat/dat/maxpool_layer_5.txt";
+    // let file_path = "./dat/dat/maxpool_layer_5.txt";
+    let file_path = "./dat/dat/maxpool_layer_31.txt";
 
     let (
         maxpool_in_values,
@@ -481,6 +469,7 @@ fn test_maxpool_with_real_data() {
     let num_vars_in_data = maxpool_in_data.next_power_of_two().trailing_zeros() as usize;
     let num_vars_in_channel = maxpool_in_channel.next_power_of_two().trailing_zeros() as usize;
     let num_vars_out_data = maxpool_out_data.next_power_of_two().trailing_zeros() as usize;
+    // let num_vars_out_data = (maxpool_out_data.next_power_of_two().trailing_zeros() as usize).max(1);
     let num_vars_out_channel = maxpool_out_channel.next_power_of_two().trailing_zeros() as usize;
     println!("Number of variables in input data: {}", num_vars_in_data);
     println!(
@@ -519,61 +508,9 @@ fn test_maxpool_with_real_data() {
     let y2_poly =
         DenseMultilinearExtension::from_evaluations_vec(num_vars_y2, maxpool_out_values.clone());
 
-    // Convert indices and generate polynomials
-    // let y1_poly = switch_to_little_endian_and_convert(num_vars_y1, &maxpool_in_values);
-    // let y2_poly = switch_to_little_endian_and_convert(num_vars_y2, &maxpool_out_values);
-    // compare all y1_poly with maxpool_in_values
-
-    // Reorder dimensions
-    // let new_order = vec![1, 0];
-    // let y1_reordered = reorder_variable_groups(
-    //     &y1_poly,
-    //     &[num_vars_in_channel, num_vars_in_data],
-    //     &new_order,
-    // );
-    // let y2_reordered = reorder_variable_groups(
-    //     &y2_poly,
-    //     &[num_vars_out_channel, num_vars_out_data],
-    //     &new_order,
-    // );
-    // let new_order = vec![4, 2, 0, 3, 1];
-    // let y1_reordered = reorder_variable_groups(
-    //     &y1_poly,
-    //     &[
-    //         num_vars_in_channel,
-    //         (num_vars_in_data - 2) / 2,
-    //         1,
-    //         (num_vars_in_data - 2) / 2,
-    //         1,
-    //     ],
-    //     &new_order,
-    // );
-
-    // let new_order = vec![1, 0];
-    // let y2_reordered = reorder_variable_groups(
-    //     &y2_poly,
-    //     &[num_vars_out_channel, num_vars_out_data],
-    //     &new_order,
-    // );
-
-    // define new order：new group i = old group new_order[i]
-    // let new_order = vec![0, 3, 1, 4, 2];
-    // let new_order = vec![0, 2, 4, 1, 3];
-    // switch i, j to the lowest bits
-    // let new_order = vec![2, 4, 1, 3, 0];
-    // let new_order = vec![0, 3, 1, 4, 2];
-    // num_vars_in_channel, (num_vars_in_data - 2) / 2, 1, (num_vars_in_data - 2) / 2, 1
-    // -> 1,1,(num_vars_in_data - 2) / 2,(num_vars_in_data - 2) / 2,num_vars_in_channel
     let new_order = vec![4, 1, 3, 0, 2];
     let y1_reordered = reorder_variable_groups(
         &y1_poly,
-        // &[
-        //     num_vars_in_channel,
-        //     (num_vars_in_data - 2) / 2,
-        //     1,
-        //     (num_vars_in_data - 2) / 2,
-        //     1,
-        // ],
         &[
             1,
             (num_vars_in_data - 2) / 2,
@@ -583,8 +520,6 @@ fn test_maxpool_with_real_data() {
         ],
         &new_order,
     );
-    println!("y1_reordered[4482]: {:?}", y1_reordered[4482]);
-    // let index = 0*2usize.pow(1+1+14)
 
     // switch num_vars_in_data to the lowest bits
     let new_order = vec![1, 0];

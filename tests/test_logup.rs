@@ -6,7 +6,7 @@ use merlin::Transcript;
 type E = ark_bn254::Bn254;
 type F = <E as Pairing>::ScalarField;
 
-const M: usize = 1 << 20;
+const M: usize = 1 << 11;
 const N: usize = 1 << 8;
 
 #[test]

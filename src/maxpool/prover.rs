@@ -485,6 +485,20 @@ impl Prover {
     //     // Return commitments, proof, and polynomial evaluations
     //     (commit, proof, a, range)
     // }
+
+    fn expand_y1_with_new_variable(y1: Vec<F>, num_vars: usize) -> Vec<F> {
+        let new_len = 1 << (num_vars + 1); // 2^(num_vars + 1)
+        let mut expanded_y1 = vec![F::zero(); new_len];
+
+        for i in 0..(1 << num_vars) {
+            // Copy existing value for both x_4 = 0 and x_4 = 1
+            expanded_y1[i * 2] = y1[i]; // Corresponds to x_4 = 0
+            expanded_y1[i * 2 + 1] = y1[i]; // Corresponds to x_4 = 1
+        }
+
+        expanded_y1
+    }
+
     // Process inequalities
     pub fn process_inequalities(
         &self,
@@ -536,8 +550,11 @@ impl Prover {
         // Step 4: Define the target range t as [0, F::MAX]
         let range: Vec<F> = (0..=MAX_VALUE_IN_Y).map(|val| F::from(val)).collect();
 
+        // println!("a.len() = {}", a.len());
+
         // Step 5: Generate public keys and commitments
-        let ((pk, ck), commit) = Logup::process::<E>(num_vars_y1, &a);
+        // let ((pk, ck), commit) = Logup::process::<E>(num_vars_y1, &a);
+        let ((pk, ck), commit) = Logup::process::<E>(15, &a);
 
         (expanded_y2, combined_y1, a, range, commit, pk, ck)
     }
