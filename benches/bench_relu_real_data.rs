@@ -1,18 +1,15 @@
-use ark_ff::{BigInt, PrimeField, Zero};
-use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
+use ark_std::test_rng;
 use ark_std::{
     fs::File,
     io::{self, BufRead, BufReader},
-    rc::Rc,
-    test_rng,
 };
-use ark_sumcheck::ml_sumcheck::protocol::prover;
+use criterion::{criterion_group, criterion_main, Criterion};
 use merlin::Transcript;
+use std::fs;
 use std::path::Path;
-use zkconv::{relu::prover::Prover, relu::verifier::Verifier, F};
-
-// MAX_VALUE_IN_Y
-const MAX_VALUE_IN_Y: u64 = 65536;
+use std::time::Duration;
+use zkconv::relu::{prover::Prover, verifier::Verifier};
+use zkconv::F;
 
 fn read_relu_data<P: AsRef<Path>>(
     file_path: P,
@@ -161,123 +158,119 @@ fn read_relu_data<P: AsRef<Path>>(
         width,
     ))
 }
+fn benchmark_relu_files(c: &mut Criterion) {
+    let dir_path = "./dat/dat";
+    let relu_files = fs::read_dir(dir_path)
+        .expect("Unable to read directory")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("relu_layer_")
+        })
+        .collect::<Vec<_>>();
 
-// /// Verify whether y3 = ReLU(y2)
-// /// ReLU(x) = max(0, x)
-// use ark_ff::Field;
+    for entry in relu_files {
+        let file_path = entry.path();
+        let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
 
-// pub fn verify_relu<T: Field>(y2: &[T], y3: &[T]) -> bool {
-//     if y2.len() != y3.len() {
-//         return false;
-//     }
+        let (y1_values, y2_values, y3_values, remainder_values, channels, height, width) =
+            read_relu_data(&file_path).expect(&format!("Failed to read file: {}", file_name));
 
-//     for i in 0..y2.len() {
-//         if y3[i] != y2[i].max(T::zero()) {
-//             println!("Mismatch: y2 = {:?}, y3 = {:?}, i = {:?}", y2[i], y3[i], i);
-//             return false;
-//         }
-//     }
-//     true
-// }
+        let q = 6; // Assume q = 6; can be dynamically set based on the file
+        let prover = Prover::new_real_data(
+            q,
+            y1_values.clone(),
+            y2_values.clone(),
+            y3_values.clone(),
+            remainder_values.clone(),
+        );
+        let verifier = Verifier::new(q, y1_values, y2_values, y3_values, remainder_values);
 
-// use std::collections::HashMap;
-// use std::collections::HashSet;
-// fn check_data_of_a_and_t(a: &Vec<F>, t: &Vec<F>) {
-//     println!("Length of a: {}", a.len());
-//     println!("Length of t: {}", t.len());
+        // Step 1 pre-computation for Prover
+        let (commit_step1, pk_step1, ck_step1, t_step1) =
+            prover.process_step1_logup(&prover.remainder, q as usize);
 
-//     // Check range of a and t
-//     println!(
-//         "Range of a: min = {:?}, max = {:?}",
-//         a.iter().min(),
-//         a.iter().max()
-//     );
-//     println!(
-//         "Range of t: min = {:?}, max = {:?}",
-//         t.iter().min(),
-//         t.iter().max()
-//     );
+        // Step 1 benchmark for Prover
+        c.bench_function(&format!("Prover prove step1 - {}", file_name), |b| {
+            b.iter(|| {
+                let mut rng = test_rng();
+                prover.prove_step1_sumcheck(&mut rng);
+                prover.prove_step1_logup(commit_step1.clone(), pk_step1.clone(), t_step1.clone());
+            });
+        });
 
-//     // Check unique elements in a and t
-//     let unique_a: HashSet<_> = a.iter().collect();
-//     let unique_t: HashSet<_> = t.iter().collect();
-//     println!("Unique elements in a: {}", unique_a.len());
-//     println!("Unique elements in t: {}", unique_t.len());
+        // Pre-computation for Verifier
+        let mut rng = test_rng();
+        let (sumcheck_proof, asserted_sum, poly_info) = prover.prove_step1_sumcheck(&mut rng);
+        let (commit_step1, proof_step1, a_step1, t_step1) =
+            prover.prove_step1_logup(commit_step1.clone(), pk_step1.clone(), t_step1.clone());
 
-//     // Check histogram of a and t
-//     // let hist_a = calculate_histogram(&a);
-//     // let hist_t = calculate_histogram(&t);
-//     // println!("Histogram of a: {:?}", hist_a);
-//     // println!("Histogram of t: {:?}", hist_t);
+        // Step 1 benchmark for Verifier
+        c.bench_function(&format!("Verifier verify step1 - {}", file_name), |b| {
+            b.iter(|| {
+                verifier.verify_step1_sumcheck(&sumcheck_proof, asserted_sum, &poly_info);
+                verifier.verify_step1_logup(
+                    &commit_step1,
+                    &proof_step1,
+                    &a_step1,
+                    &t_step1,
+                    &ck_step1,
+                );
+            });
+        });
 
-//     // Check if a is a subset of t
-//     let is_subset = a.iter().all(|x| t.contains(x));
-//     println!("Is a a subset of t? {}", is_subset);
-//     let missing_from_t: Vec<_> = a.iter().filter(|x| !t.contains(x)).collect();
-//     println!("Values in a but not in t: {:?}", missing_from_t);
-// }
+        // Step 2 pre-computation for Prover
+        let (a_step2, t_step2) = prover.compute_a_t(&prover.y2, &prover.y3);
+        let mut transcript = Transcript::new(b"Logup");
+        let (commit_step2, pk_step2, ck_step2) = prover.process_step2_logup(&a_step2);
 
-#[test]
-fn test_relu_real_data() {
-    let file_path = "./dat/dat/relu_layer_30.txt";
-    // 26.28.30
+        // Step 2 benchmark for Prover
+        c.bench_function(&format!("Prover prove step2 - {}", file_name), |b| {
+            b.iter(|| {
+                prover.prove_step2_logup(
+                    commit_step2.clone(),
+                    pk_step2.clone(),
+                    t_step2.clone(),
+                    a_step2.clone(),
+                    &mut transcript,
+                );
+            });
+        });
 
-    let (y1_values, y2_values, y3_values, remainder_values, channels, height, width) =
-        read_relu_data(file_path).expect("Failed to read data file");
+        // Step 2 pre-computation for Verifier
+        let mut transcript = Transcript::new(b"Logup");
+        let (commit_step2, pk_step2, ck_step2) = prover.process_step2_logup(&a_step2);
 
-    let q = 6; // Assuming Q value from the file
+        let (commit_step2, proof_step2, a_step2_p, t_step2_p) = prover.prove_step2_logup(
+            commit_step2.clone(),
+            pk_step2.clone(),
+            t_step2.clone(),
+            a_step2.clone(),
+            &mut transcript,
+        );
+        // let mut transcript = Transcript::new(b"Logup");
 
-    // let prover = Prover::new(q, y1_values.clone());
-    let prover = Prover::new_real_data(
-        q,
-        y1_values.clone(),
-        y2_values.clone(),
-        y3_values.clone(),
-        remainder_values.clone(),
-    );
-    let verifier = Verifier::new(
-        q,
-        y1_values,
-        y2_values.clone(),
-        y3_values.clone(),
-        remainder_values,
-    );
-
-    // Prove and verify using sumcheck
-    let mut rng = test_rng();
-    let (sumcheck_proof, asserted_sum, poly_info) = prover.prove_step1_sumcheck(&mut rng);
-    assert!(verifier.verify_step1_sumcheck(&sumcheck_proof, asserted_sum, &poly_info));
-
-    // Prove and verify logup for remainder
-    let (commit_step1, pk_step1, ck_step1, t_step1) =
-        prover.process_step1_logup(&prover.remainder, q as usize);
-    let (commit_step1, proof_step1, a_step1, t_step1) =
-        prover.prove_step1_logup(commit_step1, pk_step1, t_step1);
-    assert!(verifier.verify_step1_logup(
-        &commit_step1,
-        &proof_step1,
-        &a_step1,
-        &t_step1,
-        &ck_step1
-    ));
-
-    // Prove and verify logup for relu
-    let (a, t) = prover.compute_a_t(&prover.y2, &prover.y3);
-
-    let mut transcript = Transcript::new(b"Logup");
-    let (commit_step2, pk_step2, ck_step2) = prover.process_step2_logup(&a);
-
-    let (commit_step2, proof_step2, a_step2, t_step2) =
-        prover.prove_step2_logup(commit_step2, pk_step2, t, a, &mut transcript);
-    // let mut transcript = Transcript::new(b"Logup");
-    assert!(verifier.verify_step2_logup(
-        &commit_step2,
-        &proof_step2,
-        &a_step2,
-        &t_step2,
-        &ck_step2,
-        // &mut transcript
-    ));
-
-    println!("ReLU layer verification with real data passed successfully.");
+        // Step 2 benchmark for Verifier
+        c.bench_function(&format!("Verifier verify step2 - {}", file_name), |b| {
+            b.iter(|| {
+                verifier.verify_step2_logup(
+                    &commit_step2,
+                    &proof_step2,
+                    &a_step2_p,
+                    &t_step2_p,
+                    &ck_step2,
+                    // &mut transcript,
+                );
+            });
+        });
+    }
 }
+
+criterion_group! {
+    name = benches;
+    config = Criterion::default().measurement_time(Duration::from_secs(10));
+    targets = benchmark_relu_files
+}
+criterion_main!(benches);

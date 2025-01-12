@@ -116,7 +116,7 @@ fn benchmark_relu_prover_verifier(c: &mut Criterion) {
                 &a_step2,
                 &t_step2,
                 &ck_step2,
-                &mut transcript,
+                // &mut transcript,
             );
         });
     });

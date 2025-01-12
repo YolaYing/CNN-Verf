@@ -111,14 +111,14 @@ fn test_full_prove_and_verify_with_mock_data() {
 
     let (commit_step2, proof_step2, a_step2, t_step2) =
         prover.prove_step2_logup(commit_step2, pk_step2, t, a, &mut transcript);
-    let mut transcript = Transcript::new(b"Logup");
+    // let mut transcript = Transcript::new(b"Logup");
     assert!(verifier.verify_step2_logup(
         &commit_step2,
         &proof_step2,
         &a_step2,
         &t_step2,
         &ck_step2,
-        &mut transcript
+        // &mut transcript
     ));
 
     println!("Test with mock data passed successfully");

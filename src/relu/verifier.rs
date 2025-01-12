@@ -89,9 +89,9 @@ impl Verifier {
         a: &Vec<F>,
         t: &Vec<F>,
         ck: &MultilinearVerifierParam<E>,
-        transcript: &mut Transcript,
+        // transcript: &mut Transcript,
     ) -> bool {
-        // let mut transcript = Transcript::new(b"Logup");
-        Logup::verify::<E>(a, t, &commit, ck, proof, transcript)
+        let mut transcript = Transcript::new(b"Logup");
+        Logup::verify::<E>(a, t, &commit, ck, proof, &mut transcript)
     }
 }

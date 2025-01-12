@@ -56,3 +56,15 @@ harness = false
 [[bench]]
 name = "bench_maxpool"
 harness = false
+
+[[bench]]
+name = "bench_conv_real_data"
+harness = false
+
+[[bench]]
+name = "bench_relu_real_data"
+harness = false
+
+[[bench]]
+name = "bench_maxpool_real_data"
+harness = false
