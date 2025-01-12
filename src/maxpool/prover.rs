@@ -554,7 +554,7 @@ impl Prover {
 
         // Step 5: Generate public keys and commitments
         // let ((pk, ck), commit) = Logup::process::<E>(num_vars_y1, &a);
-        let ((pk, ck), commit) = Logup::process::<E>(15, &a);
+        let ((pk, ck), commit) = Logup::process::<E>(18, &a);
 
         (expanded_y2, combined_y1, a, range, commit, pk, ck)
     }

@@ -11,7 +11,7 @@ use utils::{append_serializable_element, get_and_append_challenge};
 use crate::{Logup, LogupProof, ProverParam, PCS};
 
 impl Logup {
-    pub fn prove<E: Pairing> (
+    pub fn prove<E: Pairing>(
         a: &Vec<E::ScalarField>,
         t: &Vec<E::ScalarField>,
         pk: &ProverParam<E>,
@@ -28,7 +28,10 @@ impl Logup {
         for ai in a {
             *count_map.entry(ai).or_insert(0) += 1;
         }
-        let e: Vec<_> = t.iter().map(|ti| *count_map.get(ti).unwrap_or(&0)).collect();
+        let e: Vec<_> = t
+            .iter()
+            .map(|ti| *count_map.get(ti).unwrap_or(&0))
+            .collect();
         let e: Vec<_> = e.iter().map(|x| E::ScalarField::from(*x as u32)).collect();
 
         let r = get_and_append_challenge::<E::ScalarField>(transcript, b"Internal round");
@@ -67,7 +70,8 @@ impl Logup {
         append_serializable_element(transcript, b"open", &proof);
         affine_deque.push_back(proof);
         // sum-check on \sum_i g_i * e_i
-        let (proof, challenges, _) = SumCheck::prove(vec![g.clone(), e.clone()], |v| v[0] * v[1], transcript);
+        let (proof, challenges, _) =
+            SumCheck::prove(vec![g.clone(), e.clone()], |v| v[0] * v[1], transcript);
         field_deque.extend(proof);
         let (proof, open_g) = PCS::<E>::open(pk, &g, &challenges);
         append_serializable_element(transcript, b"open", &proof);
@@ -79,9 +83,15 @@ impl Logup {
         field_deque.push_back(vec![open_g, open_e]);
 
         // prove \sum_i eq(r', i) * f_i * (r + a_i) = 1
-        let point: Vec<_> = (0..m.ilog2() as usize).map(|_| get_and_append_challenge::<E::ScalarField>(transcript, b"")).collect();
+        let point: Vec<_> = (0..m.ilog2() as usize)
+            .map(|_| get_and_append_challenge::<E::ScalarField>(transcript, b""))
+            .collect();
         let eq = new_eq(&point);
-        let (proof, challenge, _) = SumCheck::prove(vec![eq, f.clone(), a.iter().map(|x| r+x).collect()], |v| v[0] * v[1] * v[2], transcript);
+        let (proof, challenge, _) = SumCheck::prove(
+            vec![eq, f.clone(), a.iter().map(|x| r + x).collect()],
+            |v| v[0] * v[1] * v[2],
+            transcript,
+        );
         field_deque.extend(proof);
         let (proof, open_f) = PCS::<E>::open(pk, &f, &challenge);
         append_serializable_element(transcript, b"open", &proof);
@@ -93,9 +103,15 @@ impl Logup {
         field_deque.push_back(vec![open_f, open_a]);
 
         // prove \sum_i eq(r', i) * g_i * (r + t_i) = 1
-        let point: Vec<_> = (0..n.ilog2() as usize).map(|_| get_and_append_challenge::<E::ScalarField>(transcript, b"")).collect();
+        let point: Vec<_> = (0..n.ilog2() as usize)
+            .map(|_| get_and_append_challenge::<E::ScalarField>(transcript, b""))
+            .collect();
         let eq = new_eq(&point);
-        let (proof, challenges, _) = SumCheck::prove(vec![eq.clone(), g.clone(), t.iter().map(|x| r+x).collect()], |v| v[0] * v[1] * v[2], transcript);
+        let (proof, challenges, _) = SumCheck::prove(
+            vec![eq.clone(), g.clone(), t.iter().map(|x| r + x).collect()],
+            |v| v[0] * v[1] * v[2],
+            transcript,
+        );
         field_deque.extend(proof);
         let (proof, open_value) = PCS::<E>::open(pk, &g, &challenges);
         append_serializable_element(transcript, b"open", &proof);

@@ -56,6 +56,16 @@ impl Prover {
         }
     }
 
+    pub fn new_real_data(Q: u32, y1: Vec<F>, y2: Vec<F>, y3: Vec<F>, remainder: Vec<F>) -> Self {
+        Prover {
+            Q,
+            y1,
+            y2,
+            y3,
+            remainder,
+        }
+    }
+
     fn compute_y2_and_remainder(y1: &Vec<F>, Q: u32) -> (Vec<F>, Vec<F>) {
         let two_pow_q = F::from(2u64).pow([Q as u64]);
         let mut y2 = Vec::new();
@@ -69,8 +79,6 @@ impl Prover {
             y2.push(y2_i);
             remainder.push(remainder_i);
         }
-        println!("y2: {:?}", y2);
-        println!("remainder: {:?}", remainder);
         (y2, remainder)
     }
 
@@ -180,7 +188,7 @@ impl Prover {
     //     (commit, proof, a, t)
     // }
     // Process function extracted for reuse
-    pub fn process_logup<E: Pairing<ScalarField = Fp<MontBackend<FrConfig, 4>, 4>>>(
+    pub fn process_step1_logup<E: Pairing<ScalarField = Fp<MontBackend<FrConfig, 4>, 4>>>(
         &self,
         a: &Vec<F>,
         params: usize,
@@ -194,7 +202,7 @@ impl Prover {
         let t = base.clone();
 
         let mut transcript = Transcript::new(b"Logup");
-        let ((pk, ck), commit) = Logup::process::<E>(20, a);
+        let ((pk, ck), commit) = Logup::process::<E>(18, a);
 
         (commit, pk, ck, t)
     }
@@ -220,31 +228,102 @@ impl Prover {
 
     // Prove step2_logup: y3 = relu(y2)
     // a = y2 + alpha*y3
-    // t = a (todo: confirm t range)
     // Return (commit, proof, a, t)
+    // pub fn prove_step2_logup(
+    //     &self,
+    //     commit: Vec<<E as Pairing>::G1Affine>,
+    //     pk: MultilinearProverParam<E>,
+    //     t: Vec<F>,
+    // ) -> (Vec<<E as Pairing>::G1Affine>, LogupProof<E>, Vec<F>, Vec<F>) {
+    //     let mut rng = test_rng();
+    //     let alpha = F::rand(&mut rng);
+
+    //     let a: Vec<F> = self
+    //         .y2
+    //         .iter()
+    //         .zip(self.y3.iter())
+    //         .map(|(&y2_i, &y3_i)| y2_i + alpha * y3_i)
+    //         .collect();
+    //     // t = concate(y2, (1+alpha)*y2)
+    //     let mut t = self.y2.clone();
+    //     t.extend(self.y2.iter().map(|&y2_i| y2_i + y2_i * alpha));
+    //     // sort t
+    //     t.sort();
+
+    //     let mut transcript = Transcript::new(b"Logup");
+
+    //     // Prove
+    //     let proof = Logup::prove::<E>(&a, &t, &pk, &mut transcript);
+
+    //     (commit, proof, a, t)
+    // }
+    pub fn compute_a_t<F: Field>(&self, y2: &[F], y3: &[F]) -> (Vec<F>, Vec<F>) {
+        let mut rng = test_rng();
+        let alpha = F::rand(&mut rng);
+
+        // compute a
+        // a = y2 + alpha * y3
+        // when y2 > max_possible_value, y3 = 0, a = y2
+        // when y2 <= max_possible_value, y3 = y2, a = y2 + alpha * y2
+        let mut a: Vec<F> = y2
+            .iter()
+            .zip(y3.iter())
+            .map(|(&y2_i, &y3_i)| y2_i + alpha * y3_i)
+            .collect();
+
+        // compute t
+        // t = concat(y2, (1 + alpha) * y2)
+        let mut t = y2.to_vec();
+        t.extend(y2.iter().map(|&y2_i| y2_i + y2_i * alpha));
+
+        a.sort();
+
+        t.sort();
+        t.dedup();
+
+        // Ensure t contains a power-of-2 number of unique values
+        let unique_count = t.len();
+        let next_power_of_2 = unique_count.next_power_of_two();
+
+        while t.len() < next_power_of_2 {
+            // Generate random values and add to t
+            let random_value = F::rand(&mut rng);
+            if !t.contains(&random_value) {
+                t.push(random_value);
+            }
+        }
+
+        t.sort();
+        t.dedup(); // Re-deduplicate in case random values introduced duplicates
+
+        (a, t)
+    }
+
+    pub fn process_step2_logup<E: Pairing<ScalarField = Fp<MontBackend<FrConfig, 4>, 4>>>(
+        &self,
+        a: &Vec<F>,
+    ) -> (
+        Vec<<E as Pairing>::G1Affine>,
+        MultilinearProverParam<E>,
+        MultilinearVerifierParam<E>,
+    ) {
+        let ((pk, ck), commit) = Logup::process::<E>(18, &a);
+
+        (commit, pk, ck)
+    }
+
     pub fn prove_step2_logup(
         &self,
         commit: Vec<<E as Pairing>::G1Affine>,
         pk: MultilinearProverParam<E>,
         t: Vec<F>,
+        a: Vec<F>,
+        transcript: &mut Transcript,
     ) -> (Vec<<E as Pairing>::G1Affine>, LogupProof<E>, Vec<F>, Vec<F>) {
-        let mut rng = test_rng();
-        let alpha = F::rand(&mut rng);
+        // let mut transcript = Transcript::new(b"Logup");
 
-        let a: Vec<F> = self
-            .y2
-            .iter()
-            .zip(self.y3.iter())
-            .map(|(&y2_i, &y3_i)| y2_i + alpha * y3_i)
-            .collect();
-        // t = concate(y2, (1+alpha)*y2)
-        let mut t = self.y2.clone();
-        t.extend(self.y2.iter().map(|&y2_i| y2_i + y2_i * alpha));
-
-        let mut transcript = Transcript::new(b"Logup");
-
-        // Prove
-        let proof = Logup::prove::<E>(&a, &t, &pk, &mut transcript);
+        // 调用 prove
+        let proof = Logup::prove::<E>(&a, &t, &pk, transcript);
 
         (commit, proof, a, t)
     }

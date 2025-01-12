@@ -1,5 +1,6 @@
 use ark_std::rand::RngCore;
 use ark_std::{test_rng, UniformRand};
+use merlin::Transcript;
 
 /// Generate mock data for testing the relu layer proof setup.
 /// 1. We randomly generate y1 as a vector of field elements interpreted as integers.
@@ -85,7 +86,7 @@ fn test_full_prove_and_verify_with_mock_data() {
     // assert!(verifier.verify_step2_logup(&commit_step2, &proof_step2, &a_step2, &t_step2));
 
     let (commit_step1, pk_step1, ck_step1, t_step1) =
-        prover.process_logup(&prover.remainder, prover.Q as usize);
+        prover.process_step1_logup(&prover.remainder, prover.Q as usize);
 
     // Step 1: Logup remainder range proof
     let (commit_step1, proof_step1, a_step1, t_step1) =
@@ -99,16 +100,25 @@ fn test_full_prove_and_verify_with_mock_data() {
     ));
 
     // Step 2: Logup relu proof
-    let (commit_step2, pk_step2, ck_step2, t_step2) =
-        prover.process_logup(&prover.y3, prover.Q as usize);
+    // let (commit_step2, pk_step2, ck_step2, t_step2) =
+    //     prover.process_logup(&prover.y3, prover.Q as usize);
+    // let (commit_step2, proof_step2, a_step2, t_step2) =
+    //     prover.prove_step2_logup(commit_step2, pk_step2, t_step2);
+    let (a, t) = prover.compute_a_t(&prover.y2, &prover.y3);
+
+    let mut transcript = Transcript::new(b"Logup");
+    let (commit_step2, pk_step2, ck_step2) = prover.process_step2_logup(&a);
+
     let (commit_step2, proof_step2, a_step2, t_step2) =
-        prover.prove_step2_logup(commit_step2, pk_step2, t_step2);
+        prover.prove_step2_logup(commit_step2, pk_step2, t, a, &mut transcript);
+    let mut transcript = Transcript::new(b"Logup");
     assert!(verifier.verify_step2_logup(
         &commit_step2,
         &proof_step2,
         &a_step2,
         &t_step2,
-        &ck_step2
+        &ck_step2,
+        &mut transcript
     ));
 
     println!("Test with mock data passed successfully");

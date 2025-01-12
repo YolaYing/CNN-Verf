@@ -1,6 +1,7 @@
 use ark_std::rand::RngCore;
 use ark_std::{test_rng, UniformRand};
 use criterion::{criterion_group, criterion_main, Criterion};
+use merlin::Transcript;
 use std::time::Duration;
 use zkconv::relu::{prover::Prover, verifier::Verifier};
 use zkconv::{E, F};
@@ -72,16 +73,23 @@ fn benchmark_relu_prover_verifier(c: &mut Criterion) {
     // });
     // Precompute logup data outside of the benchmark
     let (commit_step1, pk_step1, ck_step1, t_step1) =
-        prover.process_logup(&prover.remainder, prover.Q as usize);
-    let (commit_step2, pk_step2, ck_step2, t_step2) =
-        prover.process_logup(&prover.y3, prover.Q as usize);
+        prover.process_step1_logup(&prover.remainder, prover.Q as usize);
+    let (a_step2, t_step2) = prover.compute_a_t(&prover.y2, &prover.y3);
+    let mut transcript = Transcript::new(b"Logup");
+    let (commit_step2, pk_step2, ck_step2) = prover.process_step2_logup(&prover.y3);
 
     c.bench_function("Prover total prove", |b| {
         b.iter(|| {
             let mut rng = test_rng();
             prover.prove_step1_sumcheck(&mut rng);
             prover.prove_step1_logup(commit_step1.clone(), pk_step1.clone(), t_step1.clone());
-            prover.prove_step2_logup(commit_step2.clone(), pk_step2.clone(), t_step2.clone());
+            prover.prove_step2_logup(
+                commit_step2.clone(),
+                pk_step2.clone(),
+                t_step2.clone(),
+                a_step2.clone(),
+                &mut transcript,
+            );
         });
     });
 
@@ -89,14 +97,27 @@ fn benchmark_relu_prover_verifier(c: &mut Criterion) {
     let (sumcheck_proof, asserted_sum, poly_info) = prover.prove_step1_sumcheck(&mut rng);
     let (commit_step1, proof_step1, a_step1, t_step1) =
         prover.prove_step1_logup(commit_step1.clone(), pk_step1.clone(), t_step1.clone());
-    let (commit_step2, proof_step2, a_step2, t_step2) =
-        prover.prove_step2_logup(commit_step2.clone(), pk_step2.clone(), t_step2.clone());
+    let (commit_step2, proof_step2, a_step2, t_step2) = prover.prove_step2_logup(
+        commit_step2.clone(),
+        pk_step2.clone(),
+        t_step2.clone(),
+        a_step2.clone(),
+        &mut transcript,
+    );
+    let mut transcript = Transcript::new(b"Logup");
 
     c.bench_function("Verifier total verification", |b| {
         b.iter(|| {
             verifier.verify_step1_sumcheck(&sumcheck_proof, asserted_sum, &poly_info);
             verifier.verify_step1_logup(&commit_step1, &proof_step1, &a_step1, &t_step1, &ck_step1);
-            verifier.verify_step2_logup(&commit_step2, &proof_step2, &a_step2, &t_step2, &ck_step2);
+            verifier.verify_step2_logup(
+                &commit_step2,
+                &proof_step2,
+                &a_step2,
+                &t_step2,
+                &ck_step2,
+                &mut transcript,
+            );
         });
     });
 }
