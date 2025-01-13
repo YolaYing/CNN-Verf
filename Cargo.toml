@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ark-sumcheck = { path = "../zkconv/crates/sumcheck" }
-# ark-sumcheck = { path = "../zkconv/crates/sumcheck_hyrax" }
+# ark-sumcheck = { path = "../zkconv/crates/sumcheck" }
+ark-sumcheck = { path = "../zkconv/crates/sumcheck_hyrax" }
 pcs = { path = "../zkconv/crates/lookup/pcs" }
 utils = { path = "../zkconv/crates/lookup/utils" }
 poly_iop = { path = "../zkconv/crates/lookup/poly_iop" }
@@ -67,4 +67,8 @@ harness = false
 
 [[bench]]
 name = "bench_maxpool_real_data"
+harness = false
+
+[[bench]]
+name = "bench_conv_padding_real_data"
 harness = false

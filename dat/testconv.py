@@ -1,13 +1,14 @@
 
 padd=1
 
-f1=open("dat.txt","r")
+f1=open("./dat.txt","r")
 
 conv_res=f1.readlines()
 layer=0
 for s in range(len(conv_res)):
     if "conv input" in conv_res[s]:
         layer+=1
+    # if layer==29:
         x=conv_res[s+1].split(" ")[:-1]
         w=conv_res[s+3].split(" ")[:-1]
         y_=conv_res[s+5].split(" ")[:-1]
@@ -76,7 +77,7 @@ for s in range(len(conv_res)):
         # conv:
         import time
         t1=time.time()
-        print(get_padd(d)*get_padd(c)*len_x*len_w)
+        # print(get_padd(d)*get_padd(c)*len_x*len_w)
         for co in range(get_padd(d)):
             for ci in range(get_padd(c)):
                 for i in range(len_x):

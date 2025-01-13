@@ -1,5 +1,6 @@
 pub mod conv;
 pub mod conv_padding;
+pub mod conv_padding_old;
 pub mod maxpool;
 pub mod relu;
 

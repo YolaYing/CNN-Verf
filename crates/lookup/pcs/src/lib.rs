@@ -3,8 +3,8 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::Rng;
 use std::fmt::Debug;
 
-pub mod multilinear_kzg;
 pub mod hyrax_kzg;
+pub mod multilinear_kzg;
 pub mod utils;
 
 pub trait PolynomialCommitmentScheme<E: Pairing> {
@@ -14,17 +14,11 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
     type Commitment: Clone + CanonicalDeserialize + CanonicalSerialize + Debug;
     type Proof: Clone + CanonicalSerialize + CanonicalDeserialize + Debug;
 
-    fn gen_srs<R: Rng>(
-        rng: &mut R,
-        supported_num_vars: usize,
-    ) -> Self::SRS;
+    fn gen_srs<R: Rng>(rng: &mut R, supported_num_vars: usize) -> Self::SRS;
 
     fn trim(srs: &Self::SRS) -> (Self::ProverParam, Self::VerifierParam);
 
-    fn commit(
-        prover_param: &Self::ProverParam,
-        eval: &Vec<E::ScalarField>,
-    ) -> Self::Commitment;
+    fn commit(prover_param: &Self::ProverParam, eval: &Vec<E::ScalarField>) -> Self::Commitment;
 
     fn open(
         prover_param: &Self::ProverParam,
@@ -40,7 +34,6 @@ pub trait PolynomialCommitmentScheme<E: Pairing> {
         open_value: E::ScalarField,
     ) -> bool;
 }
-
 
 pub trait StructuredReferenceString<E: Pairing>: Sized {
     type ProverParam;

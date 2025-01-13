@@ -3,8 +3,8 @@ use ark_std::rand::thread_rng;
 use merlin::Transcript;
 use poly_iop::perm_check::PermCheck;
 use std::collections::VecDeque;
-use zkconv::conv_padding::prover::Prover;
-use zkconv::conv_padding::verifier::Verifier;
+use zkconv::conv_padding_old::prover::Prover;
+use zkconv::conv_padding_old::verifier::Verifier;
 use zkconv::{E, F};
 
 fn read_and_prepare_data() -> (Vec<F>, Vec<F>, Vec<F>, Vec<F>) {

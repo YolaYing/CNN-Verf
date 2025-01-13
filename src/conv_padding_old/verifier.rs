@@ -1,10 +1,10 @@
-use crate::F;
 use arithmetic::multilinear_poly::evaluate_on_point;
 use ark_ff::PrimeField;
 use merlin::Transcript;
 use poly_iop::perm_check::PermCheck;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
+use std::num::ParseIntError;
 
 pub struct Verifier<F: PrimeField> {
     num_vars: usize,         // Number of variables
@@ -20,7 +20,6 @@ impl<F: PrimeField> Verifier<F> {
     }
 
     /// Verifies the permutation check proof for two sets
-    /// Verifies the permutation check proof for two sets
     pub fn verify(
         &self,
         h_values_set1: Vec<F>,
@@ -29,8 +28,10 @@ impl<F: PrimeField> Verifier<F> {
     ) -> bool {
         let mut transcript = Transcript::new(b"PermCheck");
 
+        let next_power_of_two = h_values_set1.len().next_power_of_two() >> 1;
+
         let (challenges, values) = PermCheck::verify(
-            h_values_set1.len().trailing_zeros() as usize,
+            next_power_of_two.trailing_zeros() as usize,
             &mut transcript,
             &mut proof,
         );
