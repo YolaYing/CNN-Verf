@@ -177,12 +177,6 @@ fn benchmark_relu_real_data(c: &mut Criterion) {
 
         let (y1_values, y3_values) =
             read_relu_data(&file_path).expect(&format!("Failed to read file: {}", file_name));
-        println!(
-            "Processing file: {},y1 length: {}, y3 length: {}",
-            file_name,
-            y1_values.len(),
-            y3_values.len()
-        );
 
         concatenated_y1.extend(y1_values); // Concatenate `y1` values
         concatenated_y3.extend(y3_values); // Concatenate `y3` values
@@ -192,16 +186,17 @@ fn benchmark_relu_real_data(c: &mut Criterion) {
     let prover = Prover::new(q, concatenated_y1.clone(), concatenated_y3.clone());
     let verifier = Verifier::new(q, concatenated_y1, concatenated_y3); // Pass concatenated values to verifier
     let t = prover.compute_table_set(r);
+    // although each layer a.len is power of 2, the concatenated a.len may not be power of 2
     let a = prover.compute_a(r);
 
     let (commit, pk, ck) = prover.process_logup(&a);
 
-    // // Step 1 benchmark for Prover
-    // c.bench_function("Prover prove", |b| {
-    //     b.iter(|| {
-    //         prover.prove_logup(commit.clone(), pk.clone(), a.clone(), t.clone());
-    //     });
-    // });
+    // Step 1 benchmark for Prover
+    c.bench_function("Prover prove", |b| {
+        b.iter(|| {
+            prover.prove_logup(commit.clone(), pk.clone(), a.clone(), t.clone());
+        });
+    });
 
     // Prove and verify logup for concatenated `y1` and `y3`
     let (commit, proof, a, t) = prover.prove_logup(commit, pk, a, t);
