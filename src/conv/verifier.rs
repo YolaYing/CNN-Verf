@@ -1,10 +1,10 @@
-// verifier.rs
-//
-// Verifier side:
-// 1. Chooses r1, r, and knows Y, W, X dimension info
-// 2. Sends r1 to Prover
-// 3. Receives proofs for three sumcheck steps
-// 4. Verifies them
+//! This module implements the verifier side of the proving process.
+//!
+//! ### Verifier Responsibilities:
+//! 1. Selects `r1` and `r`, and has knowledge of the dimensions of `Y`, `W`, and `X`.
+//! 2. Sends `r1` to the Prover.
+//! 3. Receives proofs for the three sumcheck steps.
+//! 4. Verifies the correctness of the received proofs.
 
 use crate::F;
 use ark_serialize::CanonicalDeserialize;

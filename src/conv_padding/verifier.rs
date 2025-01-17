@@ -1,4 +1,3 @@
-use crate::F;
 use arithmetic::multilinear_poly::evaluate_on_point;
 use ark_ff::PrimeField;
 use merlin::Transcript;

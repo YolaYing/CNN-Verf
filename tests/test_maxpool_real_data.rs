@@ -7,8 +7,6 @@ use ark_std::{
     fs::File,
     io::{self, BufRead, BufReader},
 };
-use rand_chacha::rand_core::le;
-use std::num::ParseIntError;
 use std::path::Path;
 use zkconv::{
     maxpool::prover::reorder_variable_groups,
@@ -44,16 +42,6 @@ fn read_data_from_file<P: AsRef<Path>>(
     let maxpool_in_data = maxpool_in_dim[1] * maxpool_in_dim[2]; // Total input data size (height * width)
 
     // Read maxpool input data
-    // let maxpool_in_values: Vec<F> = lines
-    //     .by_ref() // Borrow the iterator to continue reading
-    //     .take(maxpool_in_channel * maxpool_in_data) // Read the exact number of input values
-    //     .flat_map(|line| {
-    //         let line = line.unwrap(); // Extract the line as a String
-    //         line.split_whitespace() // Split the line into individual numbers
-    //             .map(|v| F::from(v.parse::<u32>().expect("Invalid data value"))) // Parse numbers into field elements
-    //             .collect::<Vec<F>>() // Collect the parsed numbers into a vector
-    //     })
-    //     .collect();
     let maxpool_in_values: Vec<F> = {
         // Read the first line containing all the input data
         let line = lines.next().unwrap().unwrap(); // Get the single line and unwrap Result

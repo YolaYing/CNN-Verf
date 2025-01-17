@@ -1,22 +1,34 @@
-// to prove a maxpooling layer:
-// input:
-//  1. a vector of scalars y1, can be represented as a multi-variate polynomial y1(b1, b2, ..., bn)
-//  2. maxpooling result y2, can be represented as a multi-variate polynomial y2(b3,b4, ..., bn)
-// the prove process:
-//  1. compute y1(0,0,b3,..,bn), y1(0,1,b3,..,bn), y1(1,0,b3,...,bn), y1(1,1,b3,..,bn) from y1
-//  2. use sumcheck protocol to prove sum_{b3,b4,...,bn}(y2(b3,b4,...,bn)-y1(0,0,b3,...,bn)(y2(b3,b4,...,bn)-y1(0,1,b3,...,bn)(y2(b3,b4,...,bn)-y1(1,0,b3,...,bn)(y2(b3,b4,...,bn)-y1(1,1,b3,...,bn) = 0
-//  3. use logup protocol to prove y2>=y1(0,0,b3,...,bn), y2>=y1(0,1,b3,...,bn), y2>=y1(1,0,b3,...,bn), y2>=y1(1,1,b3,...,bn)
-//      f = y2(b3,b4,...,bn) - y1(b1,b2,...,bn)>=0
-
-use std::ops::Mul;
+//! To prove a maxpooling layer:
+//! Input:
+//!   1. A vector of scalars `y1`, represented as a multivariate polynomial `y1(b1, b2, ..., bn, c1, ..., cm)`.
+//!   2. Maxpooling result `y2`, represented as a multivariate polynomial `y2(b3, b4, ..., bn, c1, ..., cm)`.
+//!     * `y1` and `y2` has already been reordered compared to the original input in dat file.
+//!
+//! Proof process:
+//!   1. Compute the partial evaluations of `y1` for fixed values of `(b1, b2)`:
+//!      `y1(0, 0, b3, ..., bn, c1, ..., cm)`, `y1(0, 1, b3, ..., bn, c1, ..., cm)`,
+//!      `y1(1, 0, b3, ..., bn, c1, ..., cm)`, `y1(1, 1, b3, ..., bn, c1, ..., cm)`.
+//!   2. Use the sumcheck protocol to prove the following equation:
+//!         ∑_{b3, b4, ..., bn, c1, ..., cm} (y2(b3, b4, ..., bn, c1, ..., cm)
+//!                                          - y1(0, 0, b3, ..., bn, c1, ..., cm))
+//!                                          * (y2(b3, b4, ..., bn, c1, ..., cm)
+//!                                          - y1(0, 1, b3, ..., bn, c1, ..., cm))
+//!                                          * (y2(b3, b4, ..., bn, c1, ..., cm)
+//!                                          - y1(1, 0, b3, ..., bn, c1, ..., cm))
+//!                                          * (y2(b3, b4, ..., bn, c1, ..., cm)
+//!                                          - y1(1, 1, b3, ..., bn, c1, ..., cm)) = 0.
+//!   3. Use the logup protocol to prove the inequality constraints:
+//!         y2(b3, b4, ..., bn, c1, ..., cm) >= y1(0, 0, b3, ..., bn, c1, ..., cm),
+//!         y2(b3, b4, ..., bn, c1, ..., cm) >= y1(0, 1, b3, ..., bn, c1, ..., cm),
+//!         y2(b3, b4, ..., bn, c1, ..., cm) >= y1(1, 0, b3, ..., bn, c1, ..., cm),
+//!         y2(b3, b4, ..., bn, c1, ..., cm) >= y1(1, 1, b3, ..., bn, c1, ..., cm).
+//!      This can be expressed as:
+//!         f = y2(b3, b4, ..., bn, c1, ..., cm) - y1(b1, b2, ..., bn, c1, ..., cm) >= 0.
 
 use crate::{E, F};
-use ark_crypto_primitives::crh::sha256::digest::typenum::Length;
-// Import F from lib.rs
 use ark_ec::pairing::Pairing;
 use ark_ff::{One, Zero};
 use ark_poly::DenseMultilinearExtension;
-use ark_poly_commit::ipa_pc::Commitment;
 use ark_std::rand::Rng;
 use ark_std::rc::Rc;
 use ark_std::vec::Vec;
@@ -28,7 +40,6 @@ use logup::{Logup, LogupProof};
 use merlin::Transcript;
 use pcs::multilinear_kzg::data_structures::{MultilinearProverParam, MultilinearVerifierParam};
 
-// MAX_VALUE_IN_Y
 const MAX_VALUE_IN_Y: u64 = 65536;
 
 pub struct Prover {
@@ -38,62 +49,36 @@ pub struct Prover {
     pub num_vars_y2: usize,
 }
 
-// pub fn reorder_variable_groups(
-//     poly: &DenseMultilinearExtension<F>,
-//     group_sizes: &[usize],
-//     new_order: &[usize],
-// ) -> DenseMultilinearExtension<F> {
-//     // Reorder the variables of `poly` according to `new_order` of groups.
-//     // Steps:
-//     // 1. Compute original offsets
-//     let mut original_offsets = Vec::with_capacity(group_sizes.len());
-//     let mut acc = 0;
-//     for &size in group_sizes {
-//         original_offsets.push(acc);
-//         acc += size;
-//     }
-//     let num_vars = poly.num_vars;
-//     assert_eq!(acc, num_vars, "sum of group_sizes must equal num_vars");
-
-//     // Compute new offsets based on new_order
-//     let mut new_group_offsets = Vec::with_capacity(group_sizes.len());
-//     let mut cur = 0;
-//     for &g in new_order {
-//         new_group_offsets.push(cur);
-//         cur += group_sizes[g];
-//     }
-
-//     // We now have a permutation of groups. We need a permutation of each variable's position.
-//     // Create a mapping from old var index to new var index
-//     let mut var_map = vec![0; num_vars];
-//     {
-//         let mut current_new_offset = vec![0; group_sizes.len()];
-//         for (new_gpos, &old_g) in new_order.iter().enumerate() {
-//             let start_old = original_offsets[old_g];
-//             let size_old = group_sizes[old_g];
-//             let start_new = new_group_offsets[new_gpos];
-//             for k in 0..size_old {
-//                 var_map[start_old + k] = start_new + k;
-//             }
-//         }
-//     }
-
-//     // Reorder evaluations:
-//     // For each old_index in [0..2^num_vars], compute new_index by rearranging bits.
-//     let size = 1 << num_vars;
-//     let mut new_evals = vec![F::zero(); size];
-//     for old_index in 0..size {
-//         let mut new_index = 0;
-//         for v in 0..num_vars {
-//             let bit = (old_index >> v) & 1;
-//             let new_pos = var_map[num_vars - 1 - v];
-//             new_index |= bit << num_vars - 1 - new_pos;
-//         }
-//         new_evals[new_index] = poly.evaluations[old_index];
-//     }
-
-//     DenseMultilinearExtension::from_evaluations_vec(num_vars, new_evals)
-// }
+/// Reorders groups of variables in a multivariate polynomial's evaluations vector based on a new order.
+///
+/// # Purpose
+/// This function is designed to reorder the variable groups in a multivariate polynomial's evaluation table.
+/// For example, if the original polynomial is represented as `f1(channel, (num_vars_in_data - 2) / 2, b0, (num_vars_in_data - 2) / 2, b1)`
+/// and the goal is to reorder it to `f1(b0, b1, (num_vars_in_data - 2) / 2, (num_vars_in_data - 2) / 2, channel)`,
+/// this function enables that reordering.
+///
+/// # Parameters
+/// - `poly`: A reference to the `DenseMultilinearExtension<F>` object representing the polynomial.
+///           This includes the evaluations of the polynomial over all variable assignments.
+/// - `group_sizes`: A slice where each entry specifies the number of variables in each group,
+///                  ordered from least significant to most significant in the original polynomial.
+///                  For example, `[1, (num_vars_in_data - 2) / 2, 1, (num_vars_in_data - 2) / 2, num_vars_in_channel]`.
+/// - `new_order`: A slice specifying the new order of variable groups, from least significant to most significant
+///                after reordering. Each entry is an index into the original `group_sizes` array.
+///                For example, `[4, 1, 3, 0, 2]` means:
+///                - The group at index 4 (channel) in the original `group_sizes` array becomes the least significant
+///                  group in the reordered polynomial.
+///                - The group at index 1 (`(num_vars_in_data - 2) / 2`) in the original `group_sizes` array becomes
+///                  the second least significant group.
+///                - The group at index 3 (`(num_vars_in_data - 2) / 2`) in the original `group_sizes` array becomes
+///                  the third least significant group.
+///                - The group at index 0 (`b1`) in the original `group_sizes` array becomes the fourth least
+///                  significant group.
+///                - The group at index 2 (`b0`) in the original `group_sizes` array becomes the most significant
+///                  group.
+///                After reordering, the resulting polynomial's variable arrangement will match the specified order:
+///                `f1(b0, b1, (num_vars_in_data - 2) / 2, (num_vars_in_data - 2) / 2, channel)`.
+///
 pub fn reorder_variable_groups(
     poly: &DenseMultilinearExtension<F>,
     group_sizes: &[usize],
@@ -160,148 +145,6 @@ pub fn reorder_variable_groups(
 
     DenseMultilinearExtension::from_evaluations_vec(num_vars, new_evals)
 }
-
-// pub fn reorder_variable_groups(
-//     poly: &DenseMultilinearExtension<F>,
-//     group_sizes: &[usize],
-//     new_order: &[usize],
-// ) -> DenseMultilinearExtension<F> {
-//     // -------------------------------------------------
-//     // step0: 基本检查
-//     // -------------------------------------------------
-//     let num_groups = group_sizes.len();
-//     assert_eq!(
-//         num_groups,
-//         new_order.len(),
-//         "group_sizes.len() != new_order.len()"
-//     );
-//     let num_vars = poly.num_vars;
-//     let sum_gs: usize = group_sizes.iter().sum();
-//     assert_eq!(sum_gs, num_vars, "sum of group_sizes != num_vars");
-
-//     // -------------------------------------------------
-//     // step1: 计算旧分组在位向上的起始位置 old_offsets[i]
-//     //        （从左到右，最高位先分给 group0，再分给 group1, ...）
-//     //
-//     //   比如 group_sizes = [2, 1, 1]，则：
-//     //      group0 用掉最高的 2 位 => old_offsets[0] = 3 - (2 - 1) = 2 ? 这要仔细算
-//     //
-//     //   不过更简单的方法，是从左往右累加即可：
-//     //      group0 占据 bit 索引 (num_vars-1) down to (num_vars-1 - (size-1))
-//     //      group1 占下一段……
-//     //
-//     //   为了方便，我们直接从左到右顺次累加 offset 即可。
-//     //
-//     //   注意： offset[i] 表示 **该组的最高位 bit 索引**。
-//     //          我们再用 size 做循环就能拿到它全部覆盖哪些位。
-//     // -------------------------------------------------
-//     let mut old_offsets = Vec::with_capacity(num_groups);
-//     {
-//         // “下一个可用的最高位”
-//         let mut next_bit = num_vars - 1;
-//         for &sz in group_sizes.iter() {
-//             // 当前组的最高位 offset
-//             let highest = next_bit;
-//             // 用掉 sz 个 bit
-//             next_bit = next_bit
-//                 .checked_sub(sz)
-//                 .unwrap_or_else(|| panic!("group_sizes too large?"));
-//             // 存储
-//             old_offsets.push(highest);
-//         }
-//         // 注意：最后 next_bit 有可能=-1
-//     }
-
-//     // -------------------------------------------------
-//     // step2: 先统计新的 group 大小 & 计算新的最高位偏移 new_offsets[j]
-//     //
-//     //   - new_group_size[j] = ∑ (group_sizes[i] where new_order[i] = j)
-//     //   - new_offsets[j] =“在新的 poly 里，这个 group 的最高位是哪一位？”
-//     // -------------------------------------------------
-//     let mut new_group_size = vec![0usize; num_groups];
-//     for (old_g, &to_new_g) in new_order.iter().enumerate() {
-//         new_group_size[to_new_g] += group_sizes[old_g];
-//     }
-
-//     // 计算 new_offsets，从左到右（最高位先分给 new group0，再给 new group1, ...）
-//     let mut new_offsets = vec![0usize; num_groups];
-//     {
-//         let mut next_bit = num_vars - 1;
-//         for j in 0..num_groups {
-//             let sz = new_group_size[j];
-//             let highest = next_bit;
-//             next_bit = next_bit.checked_sub(sz).unwrap();
-//             new_offsets[j] = highest;
-//         }
-//     }
-
-//     // -------------------------------------------------
-//     // step3: 计算 var_map: old_var_bit_index -> new_var_bit_index
-//     //
-//     //   注意：因为 group0 的 size=2，表示它占据2个 bit (从它的最高位往右数)。
-//     //   比如 old_offsets[0] = 3 (表示 group0 的最高位是 bit3)、
-//     //   group0 的 size=2 => 它覆盖 bit3, bit2
-//     // -------------------------------------------------
-//     let mut var_map = vec![0usize; num_vars];
-//     for (old_g, &to_new_g) in new_order.iter().enumerate() {
-//         // 旧 group 的最高位 old_offsets[old_g]，大小 = group_sizes[old_g]
-//         let start_old_high = old_offsets[old_g];
-//         let sz = group_sizes[old_g];
-
-//         // 新 group 的最高位 new_offsets[to_new_g]
-//         let start_new_high = new_offsets[to_new_g];
-
-//         // 把旧 group 的“bit3, bit2,...(共 sz 个)” 映射到 新 group 的“bit?…?”
-//         // 例如，如果 sz=2，就映射 (start_old_high, start_old_high-1) => (start_new_high, start_new_high-1)
-//         for k in 0..sz {
-//             let old_bit_index = start_old_high - k;
-//             let new_bit_index = start_new_high - k;
-//             var_map[old_bit_index] = new_bit_index;
-//         }
-//     }
-
-//     // -------------------------------------------------
-//     // step4: 对多项式评值做 bit shuffle
-//     //        —— 按“从左到右”读取 old_index，再写到 new_index
-//     // -------------------------------------------------
-//     let size = 1 << num_vars;
-//     let mut new_evals = vec![F::default(); size];
-
-//     for old_index in 0..size {
-//         // (a) 拆分 old_index => old_bits[i], 其中 i=0 表示最左位吗？还是最右位？
-//         //     这里我们要：i=0 => bit3(最左)；所以:
-//         //        bit = (old_index >> (num_vars-1 - i)) & 1
-//         //     i=0 取最高位 bit3, i=1 取 bit2, ...
-//         let mut old_bits = vec![0u8; num_vars];
-//         for i in 0..num_vars {
-//             let bit_pos = num_vars - 1 - i;
-//             old_bits[i] = ((old_index >> bit_pos) & 1) as u8;
-//         }
-
-//         // (b) 根据 var_map，把 i=0 那个(实际上对应 bit3) 映射到 new_bits[var_map[bit3]] 之类
-//         let mut new_bits = vec![0u8; num_vars];
-//         for i in 0..num_vars {
-//             // i 是“第 i 个最高位” (0=最左, 1=次左...)；对应的老 bit 索引 = (num_vars - 1 - i)
-//             let old_bit_idx = num_vars - 1 - i;
-//             let new_bit_idx = var_map[old_bit_idx];
-//             // old_bits[i] 就是“旧的最高位(排名 i) 的 bit”
-//             new_bits[num_vars - 1 - new_bit_idx] = old_bits[i];
-//         }
-
-//         // (c) 组合 new_bits => new_index
-//         //     new_bits[0] 是最左位，... new_bits[num_vars-1] 是最右位
-//         let mut new_index = 0usize;
-//         for i in 0..num_vars {
-//             let bit_val = (new_bits[i] as usize) & 1;
-//             let bit_pos = num_vars - 1 - i;
-//             new_index |= bit_val << bit_pos;
-//         }
-
-//         new_evals[new_index] = poly.evaluations[old_index];
-//     }
-
-//     DenseMultilinearExtension::from_evaluations_vec(num_vars, new_evals)
-// }
 
 impl Prover {
     pub fn new(
@@ -486,18 +329,18 @@ impl Prover {
     //     (commit, proof, a, range)
     // }
 
-    fn expand_y1_with_new_variable(y1: Vec<F>, num_vars: usize) -> Vec<F> {
-        let new_len = 1 << (num_vars + 1); // 2^(num_vars + 1)
-        let mut expanded_y1 = vec![F::zero(); new_len];
+    // fn expand_y1_with_new_variable(y1: Vec<F>, num_vars: usize) -> Vec<F> {
+    //     let new_len = 1 << (num_vars + 1); // 2^(num_vars + 1)
+    //     let mut expanded_y1 = vec![F::zero(); new_len];
 
-        for i in 0..(1 << num_vars) {
-            // Copy existing value for both x_4 = 0 and x_4 = 1
-            expanded_y1[i * 2] = y1[i]; // Corresponds to x_4 = 0
-            expanded_y1[i * 2 + 1] = y1[i]; // Corresponds to x_4 = 1
-        }
+    //     for i in 0..(1 << num_vars) {
+    //         // Copy existing value for both x_4 = 0 and x_4 = 1
+    //         expanded_y1[i * 2] = y1[i]; // Corresponds to x_4 = 0
+    //         expanded_y1[i * 2 + 1] = y1[i]; // Corresponds to x_4 = 1
+    //     }
 
-        expanded_y1
-    }
+    //     expanded_y1
+    // }
 
     // Process inequalities
     pub fn process_inequalities(

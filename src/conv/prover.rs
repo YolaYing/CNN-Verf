@@ -1,37 +1,45 @@
-// to prove a convolution layer:
-// input:
-//  1. a vector of scalars Y, reporeted as a multi-variate polynomial Y(j, s)
-//      j is the index of the output channel, s is the index of the output position: j = [j_0, j_1, ..., j_log(c_out)], s = [s_0, s_1, ..., s_log(n_y)]
-//  2. a vector of scalars W, reporeted as a multi-variate polynomial W(i, j, b)
-//      i is the index of the input channel, j is the index of the output channel, b is the index of the kernel position: i = [i_0, i_1, ..., i_log(c_in)], j = [j_0, j_1, ..., j_log(c_out)], b = [b_0, b_1, ..., b_m]
-//  3. a vector of scalars X, reporeted as a multi-variate polynomial X(i, a)
-//      i is the index of the input channel, a is the index of the input position: i = [i_0, i_1, ..., i_log(c_in)], a = [a_0, a_1, ..., a_n_x]
-//  4. basic information:
-//      c_out: the number of output channels
-//      c_in: the number of input channels
-//      stride: the stride of the convolution
-//      padding: the padding of the convolution
-//      n_x: the width of the input
-//      n_y: the width of the output
-//      m: the width of the kernel
-// preporcess:
-//  1. verifier send r replacing Z, a list of r1(r1 = [r1_0, r1_1, ..., r1_log(c_out)]) replacing the list of j(j = [j_0, j_1, ..., j_log(c_out)])
-//  2. compute Y(r1, s) according to Y(j, s) using Y.fix_variables(&[r1]) and get the new multilinear polynomial Y(r1, s)
-//  3. compute W'(j, i, b) using W(i, j, b) and get the new multilinear polynomial W'(j, i, b) using reorder_variable_groups function
-//  4. compute W'(r1, i, b) according to W'(j, i, b) using W'.fix_variables(&[r1]) and get the new multilinear polynomial W'(r1, i, b)
-//  5. compute R[s], R[a], R[b]:
-//      R[a]'s mle: R[a] = R(a1, a2, ..., a_n_x)=(a1*r +(1-a1))*(a2*r^2+ (1-a2))*...
-//      R[b]'s mle: R[b] = R(b1, b2, ..., b_m)=(b1*r +(1-b1))*(b2*r^2+ (1-b2))*...
-//      R[s]'s mle: R[s] = R(s1, s2, ..., s_n_y)=(s1*r +(1-s1))*(s2*r^2+ (1-s2))*...
-//  6. overall_sum, overall_sum  = sum_s Y(r1, s)R[s]
-//  7. f_sum, f_sum = sum_i sum_a X(i,a)R[a]
-//  8. g_sum, g_sum = sum_b sum_b W'(r1,i,b)R[b]
-// the prove process:
-//  1. step 1: using sumcheck protocol to prove sum_s Y(r1, s)R[s] = target
-//      to be more specific: sum_{s0, s1, ..., s_logn} Y(r1, s0, s1, ..., s_logn)R[s0, s1, ..., s_logn] = target
-//  2. step 2: using sumcheck protocol to prove sum_i f'(i) = f_sum, f'(i) = sum_a X(i,a)R[a]
-//  3. step 3: using sumcheck protocol to prove sum_i g'(i) = g_sum, g'(i) = sum_b W'(r1,i,b)R[b]
+//! This file implements the proving process for a convolution layer using sumcheck protocol.
+//!
+//! ### Input:
+//! 1. A vector of scalars `Y`, represented as a multi-variate polynomial `Y(j, s)`:
+//!    - `j`: Index of the output channel (`j = [j_0, j_1, ..., j_log(c_out)]`).
+//!    - `s`: Index of the output position (`s = [s_0, s_1, ..., s_log(n_y)]`).
+//! 2. A vector of scalars `W`, represented as a multi-variate polynomial `W(i, j, b)`:
+//!    - `i`: Index of the input channel (`i = [i_0, i_1, ..., i_log(c_in)]`).
+//!    - `j`: Index of the output channel (`j = [j_0, j_1, ..., j_log(c_out)]`).
+//!    - `b`: Index of the kernel position (`b = [b_0, b_1, ..., b_m]`).
+//! 3. A vector of scalars `X`, represented as a multi-variate polynomial `X(i, a)`:
+//!    - `i`: Index of the input channel (`i = [i_0, i_1, ..., i_log(c_in)]`).
+//!    - `a`: Index of the input position (`a = [a_0, a_1, ..., a_n_x]`).
+//! 4. Basic information:
+//!    - `c_out`: Number of output channels.
+//!    - `c_in`: Number of input channels.
+//!    - `stride`: Stride of the convolution.
+//!    - `padding`: Padding of the convolution.
+//!    - `n_x`: Width of the input.
+//!    - `n_y`: Width of the output.
+//!    - `m`: Width of the kernel.
+//!
+//! ### Preprocessing:
+//! 1. The verifier sends `r` to replace `Z`, and `r1` (a list of `r1_0, r1_1, ..., r1_log(c_out)`) to replace `j` (`j_0, j_1, ..., j_log(c_out)`).
+//! 2. Compute `Y(r1, s)` from `Y(j, s)` using `Y.fix_variables(&[r1])` to obtain a new multilinear polynomial `Y(r1, s)`.
+//! 3. Compute `W'(j, i, b)` from `W(i, j, b)` using the `reorder_variable_groups` function to get `W'(j, i, b)`.
+//! 4. Compute `W'(r1, i, b)` from `W'(j, i, b)` using `W'.fix_variables(&[r1])` to obtain a new multilinear polynomial `W'(r1, i, b)`.
+//! 5. Compute `R[s]`, `R[a]`, and `R[b]`:
+//!    - `R[a]`'s MLE: `R[a] = R(a1, a2, ..., a_n_x) = (a1 * r + (1 - a1)) * (a2 * r^2 + (1 - a2)) * ...`
+//!    - `R[b]`'s MLE: `R[b] = R(b1, b2, ..., b_m) = (b1 * r + (1 - b1)) * (b2 * r^2 + (1 - b2)) * ...`
+//!    - `R[s]`'s MLE: `R[s] = R(s1, s2, ..., s_n_y) = (s1 * r + (1 - s1)) * (s2 * r^2 + (1 - s2)) * ...`
+//! 6. Compute `overall_sum`: `overall_sum = sum_s Y(r1, s) * R[s]`.
+//! 7. Compute `f_sum`: `f_sum = sum_i sum_a X(i, a) * R[a]`.
+//! 8. Compute `g_sum`: `g_sum = sum_b W'(r1, i, b) * R[b]`.
+//!
+//! ### Proving Process:
+//! 1. Use the sumcheck protocol to prove `sum_s Y(r1, s) * R[s] = target`:
+//!    - Specifically, `sum_{s0, s1, ..., s_logn} Y(r1, s0, s1, ..., s_logn) * R[s0, s1, ..., s_logn] = target`.
+//! 2. Use the sumcheck protocol to prove `sum_i f'(i) = f_sum`, where `f'(i) = sum_a X(i, a) * R[a]`.
+//! 3. Use the sumcheck protocol to prove `sum_i g'(i) = g_sum`, where `g'(i) = sum_b W'(r1, i, b) * R[b]`.
 
+use super::verifier::VerifierMessage;
 use crate::F;
 use ark_ff::{Field, One, Zero};
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
@@ -42,14 +50,12 @@ use ark_sumcheck::ml_sumcheck::{
     data_structures::{ListOfProductsOfPolynomials, PolynomialInfo},
     MLSumcheck, Proof as SumcheckProof,
 };
-// use verifier::VerifierMessage;
-use super::verifier::VerifierMessage;
 
 #[derive(Clone)]
 pub struct Prover {
-    pub Y: Rc<DenseMultilinearExtension<F>>, // Y(j,s)
-    pub W: Rc<DenseMultilinearExtension<F>>, // W(i,j,b)
-    pub X: Rc<DenseMultilinearExtension<F>>, // X(i,a)
+    pub Y: Rc<DenseMultilinearExtension<F>>, // Multilinear polynomial Y(j, s)
+    pub W: Rc<DenseMultilinearExtension<F>>, // Multilinear polynomial W(i, j, b)
+    pub X: Rc<DenseMultilinearExtension<F>>, // Multilinear polynomial X(i, a)
 
     pub num_vars_j: usize,
     pub num_vars_s: usize,
@@ -217,8 +223,8 @@ impl Prover {
         let poly_f_nv = self.num_vars_i + self.num_vars_a;
         let mut poly_f = ListOfProductsOfPolynomials::new(poly_f_nv);
         // extend R_a to the same number of variables as X
-        let factor = 1 << self.num_vars_i; // 在 i 上有 2^(num_vars_i) 个点
-        let original_len = R_a.evaluations.len(); // 原本长度为 2^(num_vars_a)
+        let factor = 1 << self.num_vars_i; // there are 2^(num_vars_i) points on i
+        let original_len = R_a.evaluations.len(); // orginal length is 2^(num_vars_a)
         assert_eq!(original_len, 1 << self.num_vars_a);
         let mut R_a_expanded_evals = Vec::with_capacity(1 << (self.num_vars_i + self.num_vars_a));
         for _ in 0..factor {
@@ -242,7 +248,7 @@ impl Prover {
 
         // extend R_b to the same number of variables as W'
         let factor = 1 << self.num_vars_i;
-        let original_len = R_b.evaluations.len(); // 原本长度为 2^(num_vars_b)
+        let original_len = R_b.evaluations.len(); // original length is 2^(num_vars_b)
         assert_eq!(original_len, 1 << self.num_vars_b);
         let mut R_b_expanded_evals = Vec::with_capacity(1 << (self.num_vars_i + self.num_vars_b));
         for _ in 0..factor {
@@ -277,23 +283,22 @@ impl Prover {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_ff::{Field, One, UniformRand, Zero};
+    use ark_ff::Zero;
     use ark_poly::DenseMultilinearExtension;
     use ark_std::rc::Rc;
-    use ark_std::test_rng;
 
     #[test]
     fn test_reorder_variable_groups() {
-        // Step 1: 定义固定的评估值的多项式 W(i, j, b)
-        let num_vars_i = 1; // i 的维度
-        let num_vars_j = 1; // j 的维度
-        let num_vars_b = 1; // b 的维度
-        let group_sizes = vec![num_vars_i, num_vars_j, num_vars_b]; // 变量组大小
+        // Step 1: define a polynomial W(i, j, b) with fixed evaluations
+        let num_vars_i = 1; // the dimension of i
+        let num_vars_j = 1; // the dimension of j
+        let num_vars_b = 1; // the dimension of b
+        let group_sizes = vec![num_vars_i, num_vars_j, num_vars_b]; // group sizes
 
-        let total_vars = num_vars_i + num_vars_j + num_vars_b; // 总变量数
+        let total_vars = num_vars_i + num_vars_j + num_vars_b; // total number of variables
         let size = 1 << total_vars; // 2^(1+1+1) = 8
 
-        // 固定评估值: 评估值 = 索引的二进制组合转换为十进制数
+        // fixed evaluations: evaluation = decimal number of binary combination of indices
         let evals: Vec<F> = (0..size).map(|i| F::from(i as u64)).collect();
 
         let poly = DenseMultilinearExtension::from_evaluations_vec(total_vars, evals.clone());
@@ -303,25 +308,24 @@ mod tests {
             println!("Index {} -> Value {}", i, evals[i]);
         }
 
-        // Step 2: 调用 reorder_variable_groups，将变量顺序从 (i, j, b) -> (j, i, b)
-        let new_order = vec![1, 0, 2]; // 新的变量组顺序: (j, i, b)
+        // Step 2: call reorder_variable_groups to reorder the variable order from (i, j, b) -> (j, i, b)
+        let new_order = vec![1, 0, 2]; // new order: (j, i, b)
         let reordered_poly = Prover::reorder_variable_groups(&poly, &group_sizes, &new_order);
 
-        // Step 3: 验证重新排列后的多项式评估值
+        // Step 3: verify the reordered polynomial evaluations
         println!("Reordered Polynomial Evaluations:");
         for i in 0..size {
             println!("Index {} -> Value {}", i, reordered_poly.evaluations[i]);
         }
     }
 
-    // 调用 construct_R_poly 函数的测试
     #[test]
     fn test_construct_R_poly_function() {
-        // Step 1: 初始化参数
-        let nv = 2; // 变量个数
+        // Step 1: initialize parameters
+        let nv = 2; // number of variables
         let r = F::from(2u64); // r = 2
 
-        // Step 2: 调用 construct_R_poly
+        // Step 2: call construct_R_poly
         let prover = Prover {
             Y: Rc::new(DenseMultilinearExtension::zero()),
             W: Rc::new(DenseMultilinearExtension::zero()),
@@ -335,7 +339,7 @@ mod tests {
 
         let r_poly = prover.construct_R_poly(nv, r);
 
-        // Step 3: 计算期望结果
+        // Step 3: calculate the expected values
         let expected_values = vec![
             F::from(1u64), // Index 0
             F::from(2u64), // Index 1
@@ -343,7 +347,7 @@ mod tests {
             F::from(8u64), // Index 3
         ];
 
-        // Step 4: 验证结果
+        // Step 4: verify the computed values
         for (i, expected) in expected_values.iter().enumerate() {
             let computed = r_poly.evaluations[i];
             assert_eq!(

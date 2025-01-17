@@ -1,40 +1,56 @@
-// to prove padding and rotation of convolution
-// input:
-// 1. original x without padding, x = c*n_x^2, c is the number of channels, n_x is the original size of the image
-// 2. padded x, n_x_padded = n_x + 2*padding, x_padded = c*n_x_padded^2
-// 3. calculated Y(rot y), y = d*(len_x+len_w)
-// 4. real y, y_real = d*n_y^2, n_y = n_x + 2*padding - len_w + 1
-// 5. (update compare to old version)P, calculated Y = real y || P, P is all the uncovered indices in calculated Y compared to real y
-// to prove:
-// 1. using permutation check to prove the padding process of x is correct
-//     that is to prove the two set are equal:
-//     the set of (x_padded[i], i) = the set of {(x[ci*w_in*w_in+(w_in-1-(xi-1))*w_in+w_in-1-(yi-1)],i),when xi==0 or yi==0 or xi==padd_w-1 or yi==padd_w-1 -> +(0,i)}
-//    to do that, we need to do the following steps:
-//    1.1. calculate set 1: (x_padded[i], i) according to x_padded
-//    1.2. calculate set 2: {(x[ci*w_in*w_in+(w_in-1-(xi-1))*w_in+w_in-1-(yi-1)],i)+(0,not overed index) according to x
-//    1.3. for each set, regard the first column as polynomial f, the second column as polynomial g
-//    1.4. get a random number from verifier and combine f and g as h = f+g*random_number
-//    1.5. prove using permuation check interface to prove the h from set 1 should be equal to the h from set 2
-// 2. (update compare to old version)using permutation check to prove the rotation process of convolution is correct
-//     that is to prove calculated Y = real y || P
-//      for P is the subset of calculated Y, that is to prove the two set are equal:
-//       the set of (calculated_y[co*(len_x+len_w)+p_pos[i]],co*w_in*w_in+i) = the set of (P[co*w_in*w_in+i],co*w_in*w_in+i)
-//       where the p_pos is calculated from the uncoverd index of [co*(len_x+len_w)+(padd_w-1-xi)*padd_w+padd_w-1-yi]
-//      for real y is the subset of calculated Y, that is to prove the two set are equal:
-//       the set of (calculated_y[co*(len_x+len_w)+(padd_w-1-xi)*padd_w+padd_w-1-yi],co*w_in*w_in+i) = the set of (real_y[co*w_in*w_in+i],co*w_in*w_in+i)
-//    to do that, we need to do the following steps:
-//    1.1.  calculate set 1: (real_y[co*w_in*w_in+i],co*w_in*w_in+i) according to real_y
-//    1.2.  calculate set 2: (P[co*w_in*w_in+i],co*w_in*w_in+i) according to P
-//    1.3.  calculate set 3: (calculated_y[co*(len_x+len_w)+(padd_w-1-xi)*padd_w+padd_w-1-yi],co*w_in*w_in+i) according to calculated y
-//    1.4.  calculate set 4: (calculated_y[co*(len_x+len_w)+p_pos[i]],co*w_in*w_in+i) according to calculated y
-//    1.5.  for each set, regard the first column as polynomial f, the second column as polynomial g
-//    1.6.  get a random number r1 from verifier and combine f and g as h = f+g*r1, and we can get h1,h2,h3,h4 from set 1,2,3,4
-//    1.7.  get a random number r2 from verifier and:
-//           combine h1 and h2 as real_y_concate_p = r2 * h1 + (1-r2) * h2
-//           combine h3 and h4 as calculated_y_concate = r2 * h3 + (1-r2) * h4
-//    1.8.  prove using permuation check interface to prove real_y_concate_p should be equal to calculated_y_concate
+//! Proving Padding and Rotation of Convolution
+//!
+//! ### Inputs:
+//! 1. Original `x` without padding:
+//!    - `x = c * n_x^2`
+//!    - `c`: Number of channels
+//!    - `n_x`: Original size of the image
+//! 2. Padded `x`:
+//!    - `n_x_padded = n_x + 2 * padding`
+//!    - `x_padded = c.next_power_of_two * (n_x_padded^2).next_power_of_two`
+//! 3. Calculated `Y` (rotated `y`):
+//!    - `y = d * (len_x + len_w)`
+//! 4. Real `y`:
+//!    - `y_real = d * n_y^2`
+//!    - `n_y = n_x + 2 * padding - len_w + 1`
+//! 5. Updated comparison:
+//!    - `P`: Calculated `Y = real_y || P`
+//!    - `P`: All uncovered indices in calculated `Y` compared to real `y`
+//!
+//! ### To Prove:
+//! #### 1. Padding Process:
+//! - Use permutation check to prove the correctness of the padding process of `x`.
+//! - Prove the equality of two sets:
+//!   1. `(x_padded[i], i)` from `x_padded`
+//!   2. `{(x[ci * w_in^2 + (w_in - 1 - (xi - 1)) * w_in + w_in - 1 - (yi - 1)], i)} + (0, i)`
+//!      when `xi == 0` or `yi == 0` or `xi == padd_w - 1` or `yi == padd_w - 1`.
+//!
+//! #### Steps for Padding Proof:
+//! 1. Calculate set 1: `(x_padded[i], i)`.
+//! 2. Calculate set 2: `{(x[ci * w_in^2 + (w_in - 1 - (xi - 1)) * w_in + w_in - 1 - (yi - 1)], i)} + (0, uncovered index)`.
+//! 3. For each set, regard the first column as polynomial `f` and the second column as polynomial `g`.
+//! 4. Combine `f` and `g` with a random number from the verifier: `h = f + g * random_number`.
+//! 5. Use the permutation check interface to prove `h` from set 1 equals `h` from set 2.
+//!
+//! #### 2. Rotation Process:
+//! - Use permutation check to prove `calculated Y = real y || P`.
+//! - Prove two subsets:
+//!   1. Subset for `P`:
+//!      - Prove `(calculated_y[co * (len_x + len_w) + p_pos[i]], co * w_in^2 + i)` equals `(P[co * w_in^2 + i], co * w_in^2 + i)`.
+//!   2. Subset for `real_y`:
+//!      - Prove `(calculated_y[co * (len_x + len_w) + (padd_w - 1 - xi) * padd_w + padd_w - 1 - yi], co * w_in^2 + i)` equals `(real_y[co * w_in^2 + i], co * w_in^2 + i)`.
+//!
+//! #### Steps for Rotation Proof:
+//! 1. Calculate set 1: `(real_y[co * w_in^2 + i], co * w_in^2 + i)`.
+//! 2. Calculate set 2: `(P[co * w_in^2 + i], co * w_in^2 + i)`.
+//! 3. Calculate set 3: `(calculated_y[co * (len_x + len_w) + (padd_w - 1 - xi) * padd_w + padd_w - 1 - yi], co * w_in^2 + i)`.
+//! 4. Calculate set 4: `(calculated_y[co * (len_x + len_w) + p_pos[i]], co * w_in^2 + i)`.
+//! 5. For each set, regard the first column as polynomial `f` and the second column as polynomial `g`.
+//! 6. Combine `f` and `g` with random number `r1`: `h = f + g * r1`. Obtain `h1, h2, h3, h4` from sets 1, 2, 3, 4.
+//! 7. Combine `h1` and `h2` with random number `r2`: `real_y_concat_p = r2 * h1 + (1 - r2) * h2`.
+//!    Combine `h3` and `h4` with `r2`: `calculated_y_concat = r2 * h3 + (1 - r2) * h4`.
+//! 8. Use the permutation check interface to prove `real_y_concat_p` equals `calculated_y_concat`.
 
-use crate::F;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use merlin::Transcript;
@@ -118,9 +134,15 @@ impl<F: PrimeField> Prover<F> {
         let mut h_values_ori = Vec::new();
         let mut h_values_padded = Vec::new();
         // let padd_w = (self.x_padded.len() / self.input_channels).sqrt();
+        // w_in here is the original width of the image, x is the original image without padding, and input_channels is the number of input channels without padding
+        // e.g. x = c * n_x^2, input_channels = c, w_in = n_x
         let w_in = (self.x.len() / self.input_channels).sqrt();
+        // padd_w is the width of the image after padding
         let padd_w = w_in + 2 * self.padding;
+        // PADD_channel is the number of input channels after padding(in VGG16, only the first layer needs input channel padding)
         let PADD_channel = self.input_channels.next_power_of_two();
+        // PADD_X is the number of elements in each channel after padding
+        // e.g original x: (3,32,32) -> PADD_X = ((32+2)^2).next_power_of_two = 2048
         let PADD_X = self.x_padded.len() / PADD_channel;
 
         // X_padded[ci*padd_w*padd_w+i]=x[ci*w_in*w_in+(w_in-1-(xi-1))*w_in+w_in-1-(yi-1)]
