@@ -1,21 +1,19 @@
+use criterion::{criterion_group, criterion_main, Criterion};
+use merlin::Transcript;
+use std::fs;
+use std::path::Path;
+use std::time::Duration;
+use zkconv::relu::{prover::Prover, verifier::Verifier};
+use zkconv::{relu, E, F};
+
+use ark_ff::{Field, PrimeField, UniformRand};
 use ark_std::{
     fs::File,
     io::{self, BufRead, BufReader},
     test_rng,
 };
-use merlin::Transcript;
-use std::path::Path;
-use zkconv::{
-    relu_old::{prover::Prover, verifier::Verifier},
-    F,
-};
 
-// MAX_VALUE_IN_Y
-const MAX_VALUE_IN_Y: u64 = 65536;
-
-fn read_relu_data<P: AsRef<Path>>(
-    file_path: P,
-) -> io::Result<(Vec<F>, Vec<F>, Vec<F>, Vec<F>, usize, usize, usize)> {
+fn read_relu_data<P: AsRef<Path>>(file_path: P) -> io::Result<(Vec<F>, Vec<F>)> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
 
@@ -150,133 +148,72 @@ fn read_relu_data<P: AsRef<Path>>(
         ));
     }
 
-    Ok((
-        input_values,
-        y2_values,
-        output_values,
-        remainder_values,
-        channels,
-        height,
-        width,
-    ))
+    Ok((input_values, output_values))
 }
 
-// /// Verify whether y3 = ReLU(y2)
-// /// ReLU(x) = max(0, x)
-// use ark_ff::Field;
+fn benchmark_relu_real_data(c: &mut Criterion) {
+    let dir_path = "./dat/dat";
+    let relu_files = fs::read_dir(dir_path)
+        .expect("Unable to read directory")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("relu_layer_")
+        })
+        .collect::<Vec<_>>();
 
-// pub fn verify_relu<T: Field>(y2: &[T], y3: &[T]) -> bool {
-//     if y2.len() != y3.len() {
-//         return false;
-//     }
+    let mut concatenated_y1 = Vec::new(); // To store concatenated `y1` values
+    let mut concatenated_y3 = Vec::new(); // To store concatenated `y3` values
 
-//     for i in 0..y2.len() {
-//         if y3[i] != y2[i].max(T::zero()) {
-//             println!("Mismatch: y2 = {:?}, y3 = {:?}, i = {:?}", y2[i], y3[i], i);
-//             return false;
-//         }
-//     }
-//     true
-// }
-
-// use std::collections::HashMap;
-// use std::collections::HashSet;
-// fn check_data_of_a_and_t(a: &Vec<F>, t: &Vec<F>) {
-//     println!("Length of a: {}", a.len());
-//     println!("Length of t: {}", t.len());
-
-//     // Check range of a and t
-//     println!(
-//         "Range of a: min = {:?}, max = {:?}",
-//         a.iter().min(),
-//         a.iter().max()
-//     );
-//     println!(
-//         "Range of t: min = {:?}, max = {:?}",
-//         t.iter().min(),
-//         t.iter().max()
-//     );
-
-//     // Check unique elements in a and t
-//     let unique_a: HashSet<_> = a.iter().collect();
-//     let unique_t: HashSet<_> = t.iter().collect();
-//     println!("Unique elements in a: {}", unique_a.len());
-//     println!("Unique elements in t: {}", unique_t.len());
-
-//     // Check histogram of a and t
-//     // let hist_a = calculate_histogram(&a);
-//     // let hist_t = calculate_histogram(&t);
-//     // println!("Histogram of a: {:?}", hist_a);
-//     // println!("Histogram of t: {:?}", hist_t);
-
-//     // Check if a is a subset of t
-//     let is_subset = a.iter().all(|x| t.contains(x));
-//     println!("Is a a subset of t? {}", is_subset);
-//     let missing_from_t: Vec<_> = a.iter().filter(|x| !t.contains(x)).collect();
-//     println!("Values in a but not in t: {:?}", missing_from_t);
-// }
-
-#[test]
-fn test_relu_real_data() {
-    let file_path = "./dat/dat/relu_layer_16.txt";
-    // 26.28.30
-
-    let (y1_values, y2_values, y3_values, remainder_values, channels, height, width) =
-        read_relu_data(file_path).expect("Failed to read data file");
-
-    let q = 6; // Assuming Q value from the file
-
-    // let prover = Prover::new(q, y1_values.clone());
-    let prover = Prover::new_real_data(
-        q,
-        y1_values.clone(),
-        y2_values.clone(),
-        y3_values.clone(),
-        remainder_values.clone(),
-    );
-    let verifier = Verifier::new(
-        q,
-        y1_values,
-        y2_values.clone(),
-        y3_values.clone(),
-        remainder_values,
-    );
-
-    // Prove and verify using sumcheck
+    let q = 6; // Assume q = 6; can be dynamically set based on the files
     let mut rng = test_rng();
-    let (sumcheck_proof, asserted_sum, poly_info) = prover.prove_step1_sumcheck(&mut rng);
-    assert!(verifier.verify_step1_sumcheck(&sumcheck_proof, asserted_sum, &poly_info));
+    let r = F::rand(&mut rng);
 
-    // Prove and verify logup for remainder
-    let (commit_step1, pk_step1, ck_step1, t_step1) =
-        prover.process_step1_logup(&prover.remainder, q as usize);
-    let (commit_step1, proof_step1, a_step1, t_step1) =
-        prover.prove_step1_logup(commit_step1, pk_step1, t_step1);
-    assert!(verifier.verify_step1_logup(
-        &commit_step1,
-        &proof_step1,
-        &a_step1,
-        &t_step1,
-        &ck_step1
-    ));
+    for entry in &relu_files {
+        let file_path = entry.path();
+        let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
 
-    // Prove and verify logup for relu
-    let (a, t) = prover.compute_a_t(&prover.y2, &prover.y3);
+        let (y1_values, y3_values) =
+            read_relu_data(&file_path).expect(&format!("Failed to read file: {}", file_name));
+        println!(
+            "Processing file: {},y1 length: {}, y3 length: {}",
+            file_name,
+            y1_values.len(),
+            y3_values.len()
+        );
 
-    let mut transcript = Transcript::new(b"Logup");
-    let (commit_step2, pk_step2, ck_step2) = prover.process_step2_logup(&a);
+        concatenated_y1.extend(y1_values); // Concatenate `y1` values
+        concatenated_y3.extend(y3_values); // Concatenate `y3` values
+    }
 
-    let (commit_step2, proof_step2, a_step2, t_step2) =
-        prover.prove_step2_logup(commit_step2, pk_step2, t, a, &mut transcript);
-    // let mut transcript = Transcript::new(b"Logup");
-    assert!(verifier.verify_step2_logup(
-        &commit_step2,
-        &proof_step2,
-        &a_step2,
-        &t_step2,
-        &ck_step2,
-        // &mut transcript
-    ));
+    // Preprocess once for the concatenated `y1` and `y3`
+    let prover = Prover::new(q, concatenated_y1.clone(), concatenated_y3.clone());
+    let verifier = Verifier::new(q, concatenated_y1, concatenated_y3); // Pass concatenated values to verifier
+    let t = prover.compute_table_set(r);
+    let a = prover.compute_a(r);
 
-    println!("ReLU layer verification with real data passed successfully.");
+    let (commit, pk, ck) = prover.process_logup(&a);
+
+    // // Step 1 benchmark for Prover
+    // c.bench_function("Prover prove", |b| {
+    //     b.iter(|| {
+    //         prover.prove_logup(commit.clone(), pk.clone(), a.clone(), t.clone());
+    //     });
+    // });
+
+    // Prove and verify logup for concatenated `y1` and `y3`
+    let (commit, proof, a, t) = prover.prove_logup(commit, pk, a, t);
+
+    c.bench_function("Verifier verify", |b| {
+        b.iter(|| verifier.verify_logup(&commit, &proof, &a, &t, &ck));
+    });
 }
+
+criterion_group! {
+    name = benches;
+    config = Criterion::default().measurement_time(Duration::from_secs(10));
+    targets = benchmark_relu_real_data
+}
+criterion_main!(benches);

@@ -28,6 +28,6 @@ impl Verifier {
         ck: &MultilinearVerifierParam<E>,
     ) -> bool {
         let mut transcript = Transcript::new(b"Logup");
-        Logup::verify::<E>(a, t, commit, ck, proof, &mut transcript)
+        Logup::verify(&a, &t, &commit, &ck, &proof, &mut transcript)
     }
 }

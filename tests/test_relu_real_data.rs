@@ -6,7 +6,7 @@ use ark_std::{
 use std::path::Path;
 use zkconv::{
     relu::{prover::Prover, verifier::Verifier},
-    F,
+    E, F,
 };
 
 use ark_ff::{Field, PrimeField, UniformRand};
@@ -152,7 +152,6 @@ fn read_relu_data<P: AsRef<Path>>(file_path: P) -> io::Result<(Vec<F>, Vec<F>)> 
 // test if all y3 = relu(y1/ 2^Q)
 pub fn test_relu_relationship(Q: u64, y1: Vec<F>, y3: Vec<F>) -> bool {
     let shift_factor = F::from(2u64).pow(&[Q]);
-    println!("Shift factor: {}", shift_factor);
 
     for i in 0..y1.len() {
         let y1_val = y1[i];
@@ -186,9 +185,15 @@ pub fn test_relu_relationship(Q: u64, y1: Vec<F>, y3: Vec<F>) -> bool {
 
 #[test]
 fn test_relu_real_data() {
-    let file_path = "./dat/dat/relu_layer_30.txt";
+    let file_path = "./dat/dat/relu_layer_26.txt";
+    // 23
 
     let (y1_values, y3_values) = read_relu_data(file_path).expect("Failed to read data file");
+    // if test_relu_relationship(6, y1_values.clone(), y3_values.clone()) {
+    //     println!("ReLU layer verification with real data passed successfully.");
+    // } else {
+    //     println!("ReLU layer verification with real data failed.");
+    // }
 
     let q = 6; // Assuming Q value from the file
 
@@ -200,6 +205,21 @@ fn test_relu_real_data() {
     let r = F::rand(&mut rng);
     let t = prover.compute_table_set(r);
     let a = prover.compute_a(r);
+
+    // // test if all a in t, if all a in t, print "all a in t", otherwise print "not all a in t"
+    // let mut all_a_in_t = true;
+    // for a_i in a.iter() {
+    //     if !t.contains(a_i) {
+    //         all_a_in_t = false;
+    //         println!("a not in t: {}", a_i);
+    //     }
+    // }
+    // if all_a_in_t {
+    //     println!("all a in t");
+    // } else {
+    //     println!("not all a in t");
+    // }
+    // println!("a.max = {}", a.iter().max().unwrap());
 
     // preprocess
     let (commit, pk, ck) = prover.process_logup(&a);

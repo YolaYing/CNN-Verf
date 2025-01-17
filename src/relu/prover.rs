@@ -17,14 +17,14 @@
 use crate::{E, F};
 use ark_bn254::FrConfig;
 use ark_ec::pairing::Pairing;
-use ark_ff::{Field, Fp, MontBackend, PrimeField};
+use ark_ff::{Field, Fp, MontBackend, PrimeField, UniformRand, Zero};
 use ark_std::vec::Vec;
 use logup::{Logup, LogupProof};
 use merlin::Transcript;
 use pcs::multilinear_kzg::data_structures::{MultilinearProverParam, MultilinearVerifierParam};
 
 /// Maximum value for `y1`.
-const MAX_VAL_Y1: i64 = 65536;
+const MAX_VAL_Y1: i64 = 131072; //2^17
 
 pub struct Prover {
     pub Q: u64,
@@ -43,7 +43,8 @@ impl Prover {
         let mut table = Vec::new();
         let shift_factor = F::from(2u64).pow(&[self.Q]);
 
-        for x in -MAX_VAL_Y1..=MAX_VAL_Y1 {
+        // Attention: Ensure t contains a power-of-2 number of unique values
+        for x in -MAX_VAL_Y1..=MAX_VAL_Y1 - 1 {
             let x_field = F::from(x as i64);
             // let shifted_val = F::from((x >> self.Q) as u64);
             let shifted_val = F::from(
@@ -61,38 +62,54 @@ impl Prover {
         table.sort();
         table.dedup();
 
+        if table.len() != 2 * MAX_VAL_Y1 as usize {
+            panic!("Table set does not contain 2 * MAX_VAL_Y1 unique values");
+        }
+
         table
     }
 
     pub fn compute_a(&self, alpha: F) -> Vec<F> {
-        self.y1
+        let mut a: Vec<F> = self
+            .y1
             .iter()
             .zip(self.y3.iter())
             .map(|(&y1_i, &y3_i)| y1_i + alpha * y3_i)
-            .collect()
+            .collect();
+        // attention a length should be power of 2
+        let len = a.len();
+        let next_power_of_two = len.next_power_of_two();
+
+        if next_power_of_two > len {
+            a.resize(next_power_of_two, F::zero());
+        }
+
+        a
     }
 
-    pub fn process_logup<E: Pairing<ScalarField = Fp<MontBackend<FrConfig, 4>, 4>>>(
+    pub fn process_logup(
         &self,
         a: &Vec<F>,
     ) -> (
         Vec<<E as Pairing>::G1Affine>,
         MultilinearProverParam<E>,
         MultilinearVerifierParam<E>,
+        // Transcript,
     ) {
         let mut transcript = Transcript::new(b"Logup");
-        let ((pk, ck), commit) = Logup::process::<E>(18, a);
+        let ((pk, ck), commit) = Logup::process::<E>(20, &a);
 
         (commit, pk, ck)
     }
 
     /// Prove the Logup protocol for `y1` and `y3`.
-    pub fn prove_logup<E: Pairing<ScalarField = Fp<MontBackend<FrConfig, 4>, 4>>>(
+    pub fn prove_logup(
         &self,
         commit: Vec<<E as Pairing>::G1Affine>,
         pk: MultilinearProverParam<E>,
         a: Vec<F>,
         t: Vec<F>,
+        // transcript: &mut Transcript,
     ) -> (Vec<<E as Pairing>::G1Affine>, LogupProof<E>, Vec<F>, Vec<F>) {
         let mut transcript = Transcript::new(b"Logup");
         let proof = Logup::prove::<E>(&a, &t, &pk, &mut transcript);

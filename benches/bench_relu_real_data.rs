@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 use zkconv::relu::{prover::Prover, verifier::Verifier};
-use zkconv::{E, F};
+use zkconv::{relu, E, F};
 
 use ark_ff::{Field, PrimeField, UniformRand};
 use ark_std::{
@@ -164,53 +164,49 @@ fn benchmark_relu_real_data(c: &mut Criterion) {
         })
         .collect::<Vec<_>>();
 
-    for entry in relu_files {
-        let file_path = entry.path();
-        let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
+    // for entry in relu_files {
+    let entry = &relu_files[0];
+    let file_path = entry.path();
+    let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
 
-        let (y1_values, y3_values) =
-            read_relu_data(&file_path).expect(&format!("Failed to read file: {}", file_name));
+    let (y1_values, y3_values) =
+        read_relu_data(&file_path).expect(&format!("Failed to read file: {}", file_name));
 
-        let q = 6; // Assume q = 6; can be dynamically set based on the file
-        let prover = Prover::new(q, y1_values.clone(), y3_values.clone());
-        let verifier = Verifier::new(q, y1_values, y3_values.clone());
-        // Step 1 pre-computation for Prover
-        let mut rng = test_rng();
-        let r = F::rand(&mut rng);
-        let t = prover.compute_table_set(r);
-        let a = prover.compute_a(r);
+    // let file_name = "./dat/dat/relu_layer_16.txt";
+    // let (y1_values, y3_values) =
+    //     read_relu_data(&file_name).expect(&format!("Failed to read file: {}", file_name));
 
-        // preprocess
-        let (commit, pk, ck) = prover.process_logup::<E>(&a);
+    let q = 6; // Assume q = 6; can be dynamically set based on the file
+    let prover = Prover::new(q, y1_values.clone(), y3_values.clone());
+    let verifier = Verifier::new(q, y1_values, y3_values.clone());
+    // Step 1 pre-computation for Prover
+    let mut rng = test_rng();
+    let r = F::rand(&mut rng);
+    let t = prover.compute_table_set(r);
+    let a = prover.compute_a(r);
 
-        // Step 1 benchmark for Prover
-        c.bench_function(&format!("Prover prove - {}", file_name), |b| {
-            b.iter(|| {
-                let mut rng = test_rng();
-                let r = F::rand(&mut rng);
-                prover.compute_table_set(r);
-                prover.compute_a(r);
-                prover.prove_logup(commit.clone(), pk.clone(), a.clone(), t.clone());
-            });
+    // preprocess
+    let (commit, pk, ck) = prover.process_logup(&a);
+
+    // Step 1 benchmark for Prover
+    c.bench_function(&format!("Prover prove - {}", file_name), |b| {
+        b.iter(|| {
+            // let mut rng = test_rng();
+            // let r = F::rand(&mut rng);
+            prover.compute_table_set(r);
+            prover.compute_a(r);
+            prover.prove_logup(commit.clone(), pk.clone(), a.clone(), t.clone());
         });
+    });
 
-        // Pre-computation for Verifier
-        let mut rng = test_rng();
-        let r = F::rand(&mut rng);
-        let t = prover.compute_table_set(r);
-        let a = prover.compute_a(r);
+    // Prove and verify logup for y1 and y3
+    let (commit, proof, a, t) = prover.prove_logup(commit, pk, a, t);
 
-        // preprocess
-        let (commit, pk, ck) = prover.process_logup(&a);
-
-        // Prove and verify logup for y1 and y3
-        let (commit, proof, a, t) = prover.prove_logup(commit, pk, a, t);
-
-        c.bench_function(&format!("Verifier verify - {}", file_name), |b| {
-            b.iter(|| verifier.verify_logup(&commit, &proof, &a, &t, &ck));
-        });
-    }
+    c.bench_function(&format!("Verifier verify - {}", file_name), |b| {
+        b.iter(|| verifier.verify_logup(&commit, &proof, &a, &t, &ck));
+    });
 }
+// }
 
 criterion_group! {
     name = benches;
