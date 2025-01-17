@@ -1,19 +1,19 @@
+use ark_std::test_rng;
+use ark_std::{
+    fs::File,
+    io::{self, BufRead, BufReader},
+};
 use criterion::{criterion_group, criterion_main, Criterion};
 use merlin::Transcript;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
-use zkconv::relu::{prover::Prover, verifier::Verifier};
-use zkconv::{E, F};
+use zkconv::relu_old::{prover::Prover, verifier::Verifier};
+use zkconv::F;
 
-use ark_ff::{Field, PrimeField, UniformRand};
-use ark_std::{
-    fs::File,
-    io::{self, BufRead, BufReader},
-    test_rng,
-};
-
-fn read_relu_data<P: AsRef<Path>>(file_path: P) -> io::Result<(Vec<F>, Vec<F>)> {
+fn read_relu_data<P: AsRef<Path>>(
+    file_path: P,
+) -> io::Result<(Vec<F>, Vec<F>, Vec<F>, Vec<F>, usize, usize, usize)> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
 
@@ -148,10 +148,17 @@ fn read_relu_data<P: AsRef<Path>>(file_path: P) -> io::Result<(Vec<F>, Vec<F>)> 
         ));
     }
 
-    Ok((input_values, output_values))
+    Ok((
+        input_values,
+        y2_values,
+        output_values,
+        remainder_values,
+        channels,
+        height,
+        width,
+    ))
 }
-
-fn benchmark_relu_real_data(c: &mut Criterion) {
+fn benchmark_relu_old_files(c: &mut Criterion) {
     let dir_path = "./dat/dat";
     let relu_files = fs::read_dir(dir_path)
         .expect("Unable to read directory")
@@ -168,46 +175,95 @@ fn benchmark_relu_real_data(c: &mut Criterion) {
         let file_path = entry.path();
         let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
 
-        let (y1_values, y3_values) =
+        let (y1_values, y2_values, y3_values, remainder_values, channels, height, width) =
             read_relu_data(&file_path).expect(&format!("Failed to read file: {}", file_name));
 
         let q = 6; // Assume q = 6; can be dynamically set based on the file
-        let prover = Prover::new(q, y1_values.clone(), y3_values.clone());
-        let verifier = Verifier::new(q, y1_values, y3_values.clone());
-        // Step 1 pre-computation for Prover
-        let mut rng = test_rng();
-        let r = F::rand(&mut rng);
-        let t = prover.compute_table_set(r);
-        let a = prover.compute_a(r);
+        let prover = Prover::new_real_data(
+            q,
+            y1_values.clone(),
+            y2_values.clone(),
+            y3_values.clone(),
+            remainder_values.clone(),
+        );
+        let verifier = Verifier::new(q, y1_values, y2_values, y3_values, remainder_values);
 
-        // preprocess
-        let (commit, pk, ck) = prover.process_logup::<E>(&a);
+        // Step 1 pre-computation for Prover
+        let (commit_step1, pk_step1, ck_step1, t_step1) =
+            prover.process_step1_logup(&prover.remainder, q as usize);
 
         // Step 1 benchmark for Prover
-        c.bench_function(&format!("Prover prove - {}", file_name), |b| {
+        c.bench_function(&format!("Prover prove step1 - {}", file_name), |b| {
             b.iter(|| {
                 let mut rng = test_rng();
-                let r = F::rand(&mut rng);
-                prover.compute_table_set(r);
-                prover.compute_a(r);
-                prover.prove_logup(commit.clone(), pk.clone(), a.clone(), t.clone());
+                prover.prove_step1_sumcheck(&mut rng);
+                prover.prove_step1_logup(commit_step1.clone(), pk_step1.clone(), t_step1.clone());
             });
         });
 
         // Pre-computation for Verifier
         let mut rng = test_rng();
-        let r = F::rand(&mut rng);
-        let t = prover.compute_table_set(r);
-        let a = prover.compute_a(r);
+        let (sumcheck_proof, asserted_sum, poly_info) = prover.prove_step1_sumcheck(&mut rng);
+        let (commit_step1, proof_step1, a_step1, t_step1) =
+            prover.prove_step1_logup(commit_step1.clone(), pk_step1.clone(), t_step1.clone());
 
-        // preprocess
-        let (commit, pk, ck) = prover.process_logup(&a);
+        // Step 1 benchmark for Verifier
+        c.bench_function(&format!("Verifier verify step1 - {}", file_name), |b| {
+            b.iter(|| {
+                verifier.verify_step1_sumcheck(&sumcheck_proof, asserted_sum, &poly_info);
+                verifier.verify_step1_logup(
+                    &commit_step1,
+                    &proof_step1,
+                    &a_step1,
+                    &t_step1,
+                    &ck_step1,
+                );
+            });
+        });
 
-        // Prove and verify logup for y1 and y3
-        let (commit, proof, a, t) = prover.prove_logup(commit, pk, a, t);
+        // Step 2 pre-computation for Prover
+        let (a_step2, t_step2) = prover.compute_a_t(&prover.y2, &prover.y3);
+        let mut transcript = Transcript::new(b"Logup");
+        let (commit_step2, pk_step2, ck_step2) = prover.process_step2_logup(&a_step2);
 
-        c.bench_function(&format!("Verifier verify - {}", file_name), |b| {
-            b.iter(|| verifier.verify_logup(&commit, &proof, &a, &t, &ck));
+        // Step 2 benchmark for Prover
+        c.bench_function(&format!("Prover prove step2 - {}", file_name), |b| {
+            b.iter(|| {
+                prover.prove_step2_logup(
+                    commit_step2.clone(),
+                    pk_step2.clone(),
+                    t_step2.clone(),
+                    a_step2.clone(),
+                    &mut transcript,
+                );
+            });
+        });
+
+        // Step 2 pre-computation for Verifier
+        let mut transcript = Transcript::new(b"Logup");
+        let (commit_step2, pk_step2, ck_step2) = prover.process_step2_logup(&a_step2);
+
+        let (commit_step2, proof_step2, a_step2_p, t_step2_p) = prover.prove_step2_logup(
+            commit_step2.clone(),
+            pk_step2.clone(),
+            t_step2.clone(),
+            a_step2.clone(),
+            &mut transcript,
+        );
+        // let mut transcript = Transcript::new(b"Logup");
+
+        // Step 2 benchmark for Verifier
+        c.bench_function(&format!("Verifier verify step2 - {}", file_name), |b| {
+            b.iter(|| {
+                verifier.verify_step2_logup(
+                    &commit_step2,
+                    &proof_step2,
+                    &a_step2_p,
+                    &t_step2_p,
+                    &ck_step2,
+                    // &mut transcript,
+                );
+            });
         });
     }
 }
@@ -215,6 +271,6 @@ fn benchmark_relu_real_data(c: &mut Criterion) {
 criterion_group! {
     name = benches;
     config = Criterion::default().measurement_time(Duration::from_secs(10));
-    targets = benchmark_relu_real_data
+    targets = benchmark_relu_old_files
 }
 criterion_main!(benches);

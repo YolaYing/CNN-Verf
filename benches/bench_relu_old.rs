@@ -3,7 +3,7 @@ use ark_std::{test_rng, UniformRand};
 use criterion::{criterion_group, criterion_main, Criterion};
 use merlin::Transcript;
 use std::time::Duration;
-use zkconv::relu::{prover::Prover, verifier::Verifier};
+use zkconv::relu_old::{prover::Prover, verifier::Verifier};
 use zkconv::{E, F};
 
 /// Generate mock data for testing the relu layer proof setup.
@@ -36,7 +36,7 @@ fn generate_mock_data(Q: u32, length: usize) -> (Vec<F>, Vec<F>, Vec<F>, Vec<F>)
     (y1, y2, y3, remainder)
 }
 
-fn benchmark_relu_prover_verifier(c: &mut Criterion) {
+fn benchmark_relu_old_prover_verifier(c: &mut Criterion) {
     let Q: u32 = 4;
     let length = 16;
     let (y1, _y2, _y3, _remainder) = generate_mock_data(Q, length);
@@ -125,6 +125,6 @@ fn benchmark_relu_prover_verifier(c: &mut Criterion) {
 criterion_group! {
     name = benches;
     config = Criterion::default().measurement_time(Duration::from_secs(10));
-    targets = benchmark_relu_prover_verifier
+    targets = benchmark_relu_old_prover_verifier
 }
 criterion_main!(benches);

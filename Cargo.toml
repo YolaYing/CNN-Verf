@@ -50,7 +50,7 @@ name = "bench_conv"
 harness = false
 
 [[bench]]
-name = "bench_relu"
+name = "bench_relu_old"
 harness = false
 
 [[bench]]

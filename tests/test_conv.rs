@@ -1,10 +1,10 @@
-use ark_ff::{Field, UniformRand, Zero};
+use ark_ff::UniformRand;
 use ark_poly::DenseMultilinearExtension;
 use ark_std::rc::Rc;
 use ark_std::test_rng;
 use zkconv::conv::prover::Prover;
 use zkconv::conv::verifier::{Verifier, VerifierMessage};
-use zkconv::{E, F};
+use zkconv::F;
 
 fn read_and_prepare_data() -> (Vec<F>, Vec<F>, Vec<F>) {
     use std::fs::File;

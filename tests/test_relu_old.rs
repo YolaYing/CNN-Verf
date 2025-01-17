@@ -48,7 +48,7 @@ pub fn generate_mock_data(Q: u32, length: usize) -> (Vec<F>, Vec<F>, Vec<F>, Vec
     (y1, y2, y3, remainder)
 }
 
-use zkconv::relu::{prover::Prover, verifier::Verifier};
+use zkconv::relu_old::{prover::Prover, verifier::Verifier};
 use zkconv::{E, F}; // Assuming the function is defined in a helper file or above test functions
 
 #[test]
