@@ -15,9 +15,8 @@
 //! 5. Verifier verifies the proof.
 
 use crate::{E, F};
-use ark_bn254::FrConfig;
 use ark_ec::pairing::Pairing;
-use ark_ff::{Field, Fp, MontBackend, PrimeField, UniformRand, Zero};
+use ark_ff::{Field, PrimeField, Zero};
 use ark_std::vec::Vec;
 use logup::{Logup, LogupProof};
 use merlin::Transcript;
