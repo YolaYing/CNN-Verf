@@ -1,7 +1,5 @@
 // commit.rs
 use crate::{E, F};
-// commit.rs
-use ark_ec::pairing::Pairing;
 use ark_std::{rand::Rng, vec::Vec};
 use pcs::hyrax_kzg::hyrax_kzg_1::HyraxKzgPCS1;
 use pcs::multilinear_kzg::data_structures::{

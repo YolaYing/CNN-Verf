@@ -4,11 +4,11 @@ use ark_std::{
     io::{self, BufRead, BufReader},
     test_rng,
 };
-use rand_chacha::rand_core::le;
 use std::path::Path;
 use std::{fs, vec};
-use zkconv::{commit, F};
+use zkconv::F;
 
+use criterion::{criterion_group, criterion_main, Criterion};
 use zkconv::commit::commit::{
     commit_all, generate_pp, open_all, open_w, prepare_srs, preprocess_w, verify_all, verify_w,
 };
@@ -156,24 +156,6 @@ fn read_and_prepare_data_conv<P: AsRef<std::path::Path>>(
     let input_channels = plain_x_dims[0];
     let output_channels = conv_y_dims[0];
 
-    println!(
-        "padding: {}, kernel_size: {}, input_channels: {}, output_channels: {}",
-        padding, kernel_size, input_channels, output_channels
-    );
-    //print all dim
-    println!("plain_x_dims: {:?}", plain_x_dims);
-    println!("rot_pad_x_dims: {:?}", rot_pad_x_dims);
-    println!("weight_w_dims: {:?}", weight_w_dims);
-    println!("conv_y_dims: {:?}", conv_y_dims);
-    println!("rot_y_dims: {:?}", rot_y_dims);
-    println!("p_dims: {:?}", p_dims);
-
-    println!("plain_x_values.len(): {}", plain_x_values.len());
-    println!("rot_pad_x_values.len(): {}", rot_pad_x_values.len());
-    println!("rot_y_values.len(): {}", rot_y_values.len());
-    println!("conv_y_values.len(): {}", conv_y_values.len());
-    println!("p_values.len(): {}", p_values.len());
-
     Ok((
         plain_x_values,
         rot_pad_x_values,
@@ -267,8 +249,9 @@ fn read_and_prepare_data_maxpool<P: AsRef<Path>>(
     ))
 }
 
-fn read_and_prepare_test_files(dir_path: &str) -> Vec<std::path::PathBuf> {
-    fs::read_dir(dir_path)
+fn benchmark_conv_files(c: &mut Criterion) {
+    let dir_path = "./dat/dat";
+    let conv_files = fs::read_dir(dir_path)
         .expect("Unable to read directory")
         .filter_map(Result::ok)
         .filter(|entry| {
@@ -278,18 +261,15 @@ fn read_and_prepare_test_files(dir_path: &str) -> Vec<std::path::PathBuf> {
                 .starts_with("conv_layer_")
         })
         .map(|entry| entry.path())
-        .collect()
-}
+        .collect::<Vec<_>>();
 
-#[test]
-fn test_commit_and_verify_conv_files() {
-    let dir_path = "./dat/dat";
-    let conv_files = read_and_prepare_test_files(dir_path);
+    let mut rng = test_rng();
 
     let mut max_vector_for_all_files = Vec::new();
+
     for file_path in &conv_files {
         let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
-        println!("Testing file: {}", file_name);
+        // println!("Testing file: {}", file_name);
 
         let (
             plain_x_values,
@@ -328,21 +308,53 @@ fn test_commit_and_verify_conv_files() {
         .iter()
         .max_by_key(|vector| vector.len())
         .expect("Vectors cannot be empty");
-    println!("max_vector.len(): {}", max_vector.len());
+    // println!("max_vector.len(): {}", max_vector.len());
 
-    let mut rng = test_rng();
     // Generate SRS and parameters
     let srs = prepare_srs(&mut rng, &max_vector);
     let (prover_param, verifier_param) = generate_pp(&srs);
 
     for file_path in &conv_files {
         let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
-        println!("Testing file: {}", file_name);
+        let (_, _, weight_w_values, _, _, _, _, _, _, _) =
+            read_and_prepare_data_conv(file_path).expect("Failed to read file");
+
+        c.bench_function(&format!("conv_{}_w_commit", file_name), |b| {
+            b.iter(|| {
+                preprocess_w(&prover_param, &weight_w_values);
+            });
+        });
+
+        let (_, _, weight_w_values, _, _, _, _, _, _, _) =
+            read_and_prepare_data_conv(file_path).expect("Failed to read file");
+        let commit = preprocess_w(&prover_param, &weight_w_values);
+        let eval_point: Vec<F> = (0..weight_w_values.len().ilog2())
+            .map(|_| F::rand(&mut rng))
+            .collect();
+        c.bench_function(&format!("conv_{}_w_open", file_name), |b| {
+            b.iter(|| {
+                open_w(&prover_param, &weight_w_values, &eval_point);
+            });
+        });
+
+        let (_, _, weight_w_values, _, _, _, _, _, _, _) =
+            read_and_prepare_data_conv(file_path).expect("Failed to read file");
+        let commit = preprocess_w(&prover_param, &weight_w_values);
+        let eval_point: Vec<F> = (0..weight_w_values.len().ilog2())
+            .map(|_| F::rand(&mut rng))
+            .collect();
+        let (proof, value) = open_w(&prover_param, &weight_w_values, &eval_point);
+
+        c.bench_function(&format!("conv_{}_w_verify", file_name), |b| {
+            b.iter(|| {
+                verify_w(&verifier_param, &commit, &eval_point, &proof, value);
+            });
+        });
 
         let (
             plain_x_values,
             rot_pad_x_values,
-            weight_w_values,
+            _,
             conv_y_values,
             rot_y_values,
             p_values,
@@ -350,42 +362,44 @@ fn test_commit_and_verify_conv_files() {
             _,
             _,
             _,
-        ) = read_and_prepare_data_conv(file_path)
-            .expect(&format!("Failed to read file: {}", file_name));
-        // Commit to weights
-        let weight_commit = preprocess_w(&prover_param, &weight_w_values);
+        ) = read_and_prepare_data_conv(file_path).expect("Failed to read file");
 
-        // Generate a random evaluation point
-        let eval_point: Vec<F> = (0..weight_w_values.len().ilog2())
-            .map(|_| F::rand(&mut rng))
-            .collect();
-
-        // Open the commitment
-        let (proof, value) = open_w(&prover_param, &weight_w_values, &eval_point);
-
-        // Verify the commitment
-        assert!(verify_w(
-            &verifier_param,
-            &weight_commit,
-            &eval_point,
-            &proof,
-            value
-        ));
-
-        println!("File {} passed the commit and verify tests.", file_name);
-
-        // commit and open all other vectors
-        let other_vectors: Vec<Vec<F>> = vec![
-            plain_x_values.clone(),
-            rot_pad_x_values.clone(),
-            conv_y_values.clone(),
-            rot_y_values.clone(),
-            p_values.clone(),
+        let all_vectors = vec![
+            plain_x_values,
+            rot_pad_x_values,
+            conv_y_values,
+            rot_y_values,
+            p_values,
         ];
 
-        // Commit to all other vectors
-        let other_commits = commit_all(&prover_param, &other_vectors);
-        let other_points: Vec<Vec<F>> = other_vectors
+        c.bench_function(&format!("conv_{}_all_commit", file_name), |b| {
+            b.iter(|| {
+                commit_all(&prover_param, &all_vectors);
+            });
+        });
+
+        let (
+            plain_x_values,
+            rot_pad_x_values,
+            _,
+            conv_y_values,
+            rot_y_values,
+            p_values,
+            _,
+            _,
+            _,
+            _,
+        ) = read_and_prepare_data_conv(file_path).expect("Failed to read file");
+
+        let all_vectors = vec![
+            plain_x_values,
+            rot_pad_x_values,
+            conv_y_values,
+            rot_y_values,
+            p_values,
+        ];
+        let commits = commit_all(&prover_param, &all_vectors);
+        let eval_points: Vec<Vec<F>> = all_vectors
             .iter()
             .map(|vector| {
                 (0..vector.len().ilog2())
@@ -393,27 +407,55 @@ fn test_commit_and_verify_conv_files() {
                     .collect()
             })
             .collect();
+        c.bench_function(&format!("conv_{}_all_open", file_name), |b| {
+            b.iter(|| {
+                open_all(&prover_param, &all_vectors, &eval_points);
+            });
+        });
 
-        let other_results = open_all(&prover_param, &other_vectors, &other_points);
+        let (
+            plain_x_values,
+            rot_pad_x_values,
+            _,
+            conv_y_values,
+            rot_y_values,
+            p_values,
+            _,
+            _,
+            _,
+            _,
+        ) = read_and_prepare_data_conv(file_path).expect("Failed to read file");
 
-        let other_proofs: Vec<_> = other_results
+        let all_vectors = vec![
+            plain_x_values,
+            rot_pad_x_values,
+            conv_y_values,
+            rot_y_values,
+            p_values,
+        ];
+        let commits = commit_all(&prover_param, &all_vectors);
+        let eval_points: Vec<Vec<F>> = all_vectors
             .iter()
-            .map(|(proof, _)| proof.clone())
+            .map(|vector| {
+                (0..vector.len().ilog2())
+                    .map(|_| F::rand(&mut rng))
+                    .collect()
+            })
             .collect();
-        let other_values: Vec<_> = other_results.iter().map(|(_, value)| *value).collect();
+        let results = open_all(&prover_param, &all_vectors, &eval_points);
 
-        assert!(verify_all(
-            &verifier_param,
-            &other_commits,
-            &other_points,
-            &other_proofs,
-            &other_values
-        ));
+        let proofs: Vec<_> = results.iter().map(|(proof, _)| proof.clone()).collect();
+        let values: Vec<_> = results.iter().map(|(_, value)| *value).collect();
+
+        c.bench_function(&format!("conv_{}_all_verify", file_name), |b| {
+            b.iter(|| {
+                verify_all(&verifier_param, &commits, &eval_points, &proofs, &values);
+            });
+        });
     }
 }
 
-#[test]
-fn test_commit_and_verify_maxpool_files() {
+fn benchmark_maxpool_files(c: &mut Criterion) {
     let dir_path = "./dat/dat";
     let maxpool_files = fs::read_dir(dir_path)
         .expect("Unable to read directory")
@@ -426,23 +468,26 @@ fn test_commit_and_verify_maxpool_files() {
         })
         .map(|entry| entry.path())
         .collect::<Vec<_>>();
+
+    let mut rng = test_rng();
+
     let mut max_vector_for_all_files = Vec::new();
 
     for file_path in &maxpool_files {
         let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
-        println!("Testing file: {}", file_name);
+        // println!("Testing file: {}", file_name);
 
-        let (maxpool_in_values, _, _, _, _, _) = read_and_prepare_data_maxpool(file_path)
-            .expect(&format!("Failed to read file: {}", file_name));
-        max_vector_for_all_files.push(maxpool_in_values.clone());
+        let (maxpool_in_values, _, _, _, _, _) =
+            read_and_prepare_data_maxpool(file_path).expect("Failed to read file");
+
+        max_vector_for_all_files.push(maxpool_in_values);
     }
 
     let max_vector = max_vector_for_all_files
         .iter()
         .max_by_key(|vector| vector.len())
         .expect("Vectors cannot be empty");
-
-    let mut rng = test_rng();
+    // println!("max_vector.len(): {}", max_vector.len());
 
     // Generate SRS and parameters
     let srs = prepare_srs(&mut rng, &max_vector);
@@ -450,64 +495,43 @@ fn test_commit_and_verify_maxpool_files() {
 
     for file_path in &maxpool_files {
         let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
-        println!("Testing file: {}", file_name);
+        let (maxpool_in_values, _, _, _, _, _) =
+            read_and_prepare_data_maxpool(file_path).expect("Failed to read file");
 
-        let (maxpool_in_values, maxpool_out_values, _, _, _, _) =
-            read_and_prepare_data_maxpool(file_path)
-                .expect(&format!("Failed to read file: {}", file_name));
+        c.bench_function(&format!("maxpool_{}_commit", file_name), |b| {
+            b.iter(|| {
+                preprocess_w(&prover_param, &maxpool_in_values);
+            });
+        });
 
-        // Commit to maxpool input
-        let input_commit = preprocess_w(&prover_param, &maxpool_in_values);
-
-        // Generate a random evaluation point
+        let (maxpool_in_values, _, _, _, _, _) =
+            read_and_prepare_data_maxpool(file_path).expect("Failed to read file");
+        let commit = preprocess_w(&prover_param, &maxpool_in_values);
         let eval_point: Vec<F> = (0..maxpool_in_values.len().ilog2())
             .map(|_| F::rand(&mut rng))
             .collect();
 
-        // Open the commitment
+        c.bench_function(&format!("maxpool_{}_open", file_name), |b| {
+            b.iter(|| {
+                open_w(&prover_param, &maxpool_in_values, &eval_point);
+            });
+        });
+
+        let (maxpool_in_values, _, _, _, _, _) =
+            read_and_prepare_data_maxpool(file_path).expect("Failed to read file");
+        let commit = preprocess_w(&prover_param, &maxpool_in_values);
+        let eval_point: Vec<F> = (0..maxpool_in_values.len().ilog2())
+            .map(|_| F::rand(&mut rng))
+            .collect();
         let (proof, value) = open_w(&prover_param, &maxpool_in_values, &eval_point);
 
-        // Verify the commitment
-        assert!(verify_w(
-            &verifier_param,
-            &input_commit,
-            &eval_point,
-            &proof,
-            value
-        ));
-
-        println!("File {} passed the commit and verify tests.", file_name);
-
-        // commit and open all other vectors
-        let other_vectors: Vec<Vec<F>> = vec![maxpool_out_values.clone()];
-
-        // Commit to all other vectors
-        let other_commits = commit_all(&prover_param, &other_vectors);
-        let other_points: Vec<Vec<F>> = other_vectors
-            .iter()
-            .map(|vector| {
-                (0..vector.len().ilog2())
-                    .map(|_| F::rand(&mut rng))
-                    .collect()
-            })
-            .collect();
-
-        let other_results = open_all(&prover_param, &other_vectors, &other_points);
-
-        let other_proofs: Vec<_> = other_results
-            .iter()
-            .map(|(proof, _)| proof.clone())
-            .collect();
-        let other_values: Vec<_> = other_results.iter().map(|(_, value)| *value).collect();
-
-        assert!(verify_all(
-            &verifier_param,
-            &other_commits,
-            &other_points,
-            &other_proofs,
-            &other_values
-        ));
-
-        println!("File {} passed the commit and verify tests.", file_name);
+        c.bench_function(&format!("maxpool_{}_verify", file_name), |b| {
+            b.iter(|| {
+                verify_w(&verifier_param, &commit, &eval_point, &proof, value);
+            });
+        });
     }
 }
+
+criterion_group!(benches, benchmark_conv_files, benchmark_maxpool_files);
+criterion_main!(benches);
